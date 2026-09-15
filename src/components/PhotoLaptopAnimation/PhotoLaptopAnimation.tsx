@@ -79,6 +79,11 @@ export default function PhotoLaptopAnimation({
     if (reduceMotion) {
       tiles.forEach((tile) => gsap.set(tile, { xPercent: -50, yPercent: -50 }));
       settleToTargets(false);
+      // Still hands off (just with no animation to wait on first) — without
+      // this, everything downstream that's gated on this handoff (the
+      // banner reveal, and in turn the corner nav) would never appear at
+      // all for reduced-motion users.
+      onLineCompleteRef.current?.(tiles, container);
       return;
     }
 

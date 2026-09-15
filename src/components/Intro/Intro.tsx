@@ -5,6 +5,7 @@ import Image from "next/image";
 import gsap from "gsap";
 import Name from "@/components/Name/Name";
 import Tagline from "@/components/Tagline/Tagline";
+import Navigation from "@/components/Navigation/Navigation";
 import PhotoLaptopAnimation from "@/components/PhotoLaptopAnimation/PhotoLaptopAnimation";
 import PaperBallAnimation, {
   type PhotoHandoff,
@@ -18,6 +19,9 @@ export default function Intro() {
   const sketchRef = useRef<HTMLDivElement>(null);
   const captionRef = useRef<HTMLParagraphElement>(null);
   const [handoff, setHandoff] = useState<PhotoHandoff | null>(null);
+  // Flips true once banner.png has fully unfolded to fill the hero — the
+  // signal the rest of the intro chrome (tagline, name) retires on.
+  const [bannerRevealed, setBannerRevealed] = useState(false);
 
   useEffect(() => {
     const sketch = sketchRef.current;
@@ -63,11 +67,16 @@ export default function Intro() {
         />
         <Caption measureRef={captionRef} />
       </div>
-      <PaperBallAnimation handoff={handoff} captionRef={captionRef} />
+      <PaperBallAnimation
+        handoff={handoff}
+        captionRef={captionRef}
+        onBannerRevealed={() => setBannerRevealed(true)}
+      />
       <div className={styles.content}>
-        <Name />
-        <Tagline />
+        <Name compact={bannerRevealed} />
+        <Tagline hide={bannerRevealed} />
       </div>
+      <Navigation revealed={bannerRevealed} />
     </section>
   );
 }

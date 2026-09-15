@@ -1,0 +1,317 @@
+.root {
+  /* Purely an attribute host for [data-revealed] below — no box of its own. */
+}
+
+.button {
+  all: unset;
+  cursor: pointer;
+  position: fixed;
+  top: 3.75rem;
+  left: 1.05rem;
+  z-index: 35;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.65rem;
+  padding: 0.35rem 0.5rem;
+  color: #f4e6d3;
+  /* Hidden until the banner has taken over and Name has settled into the
+     corner above it — fades in as part of that same moment, not before. */
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.8s ease 0.5s;
+}
+
+.root[data-revealed="true"] .button {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Echoes the frame index numbers inside the open panel (01 Home, 02
+   Projects, ...) — this is "frame 00", the trigger itself, in the same
+   dim-mono-numeral treatment. Warms to the same amber accent and gains a
+   soft glow once open, doing the job a plain status dot did before, but
+   tied to the page's own numbering system instead of a generic light. */
+.buttonIndex {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.05em;
+  color: rgba(244, 230, 211, 0.55);
+  transition: color 0.3s ease, text-shadow 0.3s ease;
+}
+
+.button[aria-expanded="true"] .buttonIndex {
+  color: #e8b976;
+  animation: indexGlow 1.8s ease-in-out infinite;
+}
+
+@keyframes indexGlow {
+  0%,
+  100% {
+    text-shadow: 0 0 0 rgba(232, 185, 118, 0);
+  }
+  50% {
+    text-shadow: 0 0 6px rgba(232, 185, 118, 0.75);
+  }
+}
+
+.buttonLabel {
+  font-family: var(--font-geist-sans), sans-serif;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  text-shadow: 0 1px 8px rgba(20, 14, 10, 0.55);
+  transition: letter-spacing 0.4s ease, color 0.3s ease;
+}
+
+.button:hover .buttonLabel,
+.button:focus-visible .buttonLabel,
+.button[aria-expanded="true"] .buttonLabel {
+  letter-spacing: 0.24em;
+}
+
+.button[aria-expanded="true"] .buttonLabel {
+  color: #e8b976;
+}
+
+/* Four corner brackets around the label, like a viewfinder's autofocus
+   frame — faint at rest, brightening, drawing tighter and warming to amber
+   on hover/focus/open, as if the camera just locked focus on the button.
+   Replaces a plain underline with something that actually speaks the
+   photographic language the rest of the page (sprockets, negative strip,
+   frame numbers) uses. */
+.corner {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  opacity: 0.4;
+  transition: opacity 0.35s ease, transform 0.35s ease, border-color 0.35s ease;
+}
+
+.corner[data-corner="tl"] {
+  top: -6px;
+  left: -6px;
+  border-top: 1.5px solid #f4e6d3;
+  border-left: 1.5px solid #f4e6d3;
+}
+
+.corner[data-corner="tr"] {
+  top: -6px;
+  right: -6px;
+  border-top: 1.5px solid #f4e6d3;
+  border-right: 1.5px solid #f4e6d3;
+}
+
+.corner[data-corner="br"] {
+  bottom: -6px;
+  right: -6px;
+  border-bottom: 1.5px solid #f4e6d3;
+  border-right: 1.5px solid #f4e6d3;
+}
+
+.corner[data-corner="bl"] {
+  bottom: -6px;
+  left: -6px;
+  border-bottom: 1.5px solid #f4e6d3;
+  border-left: 1.5px solid #f4e6d3;
+}
+
+.button:hover .corner,
+.button:focus-visible .corner,
+.button[aria-expanded="true"] .corner {
+  opacity: 0.95;
+}
+
+.button[aria-expanded="true"] .corner {
+  border-color: #e8b976;
+}
+
+.button:hover .corner[data-corner="tl"],
+.button:focus-visible .corner[data-corner="tl"],
+.button[aria-expanded="true"] .corner[data-corner="tl"] {
+  transform: translate(-2px, -2px);
+}
+
+.button:hover .corner[data-corner="tr"],
+.button:focus-visible .corner[data-corner="tr"],
+.button[aria-expanded="true"] .corner[data-corner="tr"] {
+  transform: translate(2px, -2px);
+}
+
+.button:hover .corner[data-corner="br"],
+.button:focus-visible .corner[data-corner="br"],
+.button[aria-expanded="true"] .corner[data-corner="br"] {
+  transform: translate(2px, 2px);
+}
+
+.button:hover .corner[data-corner="bl"],
+.button:focus-visible .corner[data-corner="bl"],
+.button[aria-expanded="true"] .corner[data-corner="bl"] {
+  transform: translate(-2px, 2px);
+}
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 32;
+  background: rgba(12, 9, 6, 0.55);
+  backdrop-filter: blur(2px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.4s ease;
+}
+
+.backdrop[data-open="true"] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.panel {
+  position: fixed;
+  top: 6.75rem;
+  left: 1.5rem;
+  z-index: 33;
+  width: min(86vw, 320px);
+  pointer-events: none;
+}
+
+.panel[data-open="true"] {
+  pointer-events: auto;
+}
+
+.rail {
+  width: 2px;
+  height: 28px;
+  margin-left: 1.4rem;
+  background: linear-gradient(
+    to bottom,
+    rgba(244, 230, 211, 0.9),
+    rgba(244, 230, 211, 0.15)
+  );
+  transform-origin: top;
+  transform: scaleY(0);
+}
+
+.frameList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.panel[data-open="true"] .frameList {
+  /* Scoped to the open state — a box-shadow renders from the element's own
+     box regardless of its (opacity-0, closed) children, so applying it
+     unconditionally left a visible rectangular shadow sitting on the page
+     the moment it loads, well before the menu is ever opened. */
+  box-shadow: 0 24px 60px rgba(8, 6, 4, 0.5);
+}
+
+.frame {
+  position: relative;
+  background: linear-gradient(160deg, #2c2015, #1a130d 65%, #100b07);
+  border-top: 1px solid rgba(244, 230, 211, 0.12);
+  /* Baseline closed state — under normal motion this is redundant with what
+     the GSAP timeline's own immediateRender sets on mount, but it's also
+     the ONLY thing hiding these frames under reduced motion (where no
+     timeline is ever built), and it prevents a flash of visible frames
+     before that effect runs either way. */
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+.frame:first-child {
+  border-top: none;
+}
+
+.frame::before {
+  /* Sprocket-hole rails along both edges of the frame, like 35mm film
+     perforations — a repeating column of soft dots rather than an image
+     asset. */
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: radial-gradient(
+      circle,
+      rgba(244, 230, 211, 0.8) 1.5px,
+      transparent 2px
+    ),
+    radial-gradient(circle, rgba(244, 230, 211, 0.8) 1.5px, transparent 2px);
+  background-position: 10px 8px, calc(100% - 10px) 8px;
+  background-size: 14px 14px, 14px 14px;
+  background-repeat: repeat-y, repeat-y;
+  opacity: 0.7;
+}
+
+.frame::after {
+  /* Faint grain/scanline texture for the negative-strip feel. */
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(255, 255, 255, 0.03) 0px,
+    rgba(255, 255, 255, 0.03) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  mix-blend-mode: overlay;
+}
+
+.frameLink {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 0.85rem;
+  padding: 0.95rem 2.25rem;
+  text-decoration: none;
+  color: #f4e6d3;
+}
+
+.frameIndex {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  color: rgba(244, 230, 211, 0.5);
+}
+
+.frameLabel {
+  font-family: var(--font-geist-sans), sans-serif;
+  font-size: 0.95rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  transition: color 0.25s ease;
+}
+
+.frameLink:hover .frameLabel,
+.frameLink:focus-visible .frameLabel {
+  color: #e8b976;
+}
+
+.frameLink:focus-visible {
+  outline: 2px solid #f4e6d3;
+  outline-offset: -3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* No GSAP timeline runs at all under reduced motion (see Navigation.tsx),
+     so [data-open] — set directly on open/close — is the only thing
+     driving visibility here; scoped to it rather than shown unconditionally,
+     otherwise the strip would stay visible on screen even while "closed". */
+  .panel[data-open="true"] .rail {
+    transform: scaleY(1);
+  }
+
+  .panel[data-open="true"] .frame {
+    opacity: 1;
+  }
+
+  .button {
+    transition: opacity 0.3s ease;
+  }
+}

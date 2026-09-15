@@ -2,6 +2,7 @@
   margin: 0;
   max-width: min(92vw, 760px);
   text-align: center;
+  will-change: opacity, transform, filter;
 }
 
 .text {

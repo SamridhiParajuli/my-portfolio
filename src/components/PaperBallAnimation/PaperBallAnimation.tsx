@@ -17,6 +17,10 @@ type Props = {
   // Caption sits directly below the photo row. The ball needs to rest
   // below it (not on top of it), so this measures where it is.
   captionRef?: RefObject<HTMLParagraphElement | null>;
+  // Fired once banner.png's fragments have fully unfolded flat (or, under
+  // reduced motion, once the plain fallback fade finishes) — the signal the
+  // rest of the hero chrome (tagline, name) uses to retire out of the way.
+  onBannerRevealed?: () => void;
 };
 
 // Small seeded PRNG so the crumple/cluster/blob shapes are reproducible
@@ -113,7 +117,11 @@ function fragmentFractions(count: number, seed: number): number[] {
   return raw.map((v) => v / total);
 }
 
-export default function PaperBallAnimation({ handoff, captionRef }: Props) {
+export default function PaperBallAnimation({
+  handoff,
+  captionRef,
+  onBannerRevealed,
+}: Props) {
   const layerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const shadowRef = useRef<HTMLDivElement>(null);
@@ -122,6 +130,12 @@ export default function PaperBallAnimation({ handoff, captionRef }: Props) {
   // Kicked off at mount so banner.png is long since decoded by the time the
   // reveal needs its natural size, several seconds into the intro sequence.
   const bannerPreloadRef = useRef<HTMLImageElement | null>(null);
+  // Kept current via a ref (rather than an effect dependency) so the timeline
+  // effects below never need to re-run when this callback identity changes.
+  const onBannerRevealedRef = useRef(onBannerRevealed);
+  useEffect(() => {
+    onBannerRevealedRef.current = onBannerRevealed;
+  });
 
   useEffect(() => {
     const img = new window.Image();
@@ -627,9 +641,16 @@ export default function PaperBallAnimation({ handoff, captionRef }: Props) {
     // up" either.
     const maxFragDist = Math.max(...fragDistances, 1);
     const RIPPLE_SPAN = 1.8;
+    // Tracked explicitly (rather than relying on the timeline's own
+    // "current end" cursor) because these tweens are inserted out of
+    // sequence order via absolute label offsets — the loop below doesn't
+    // necessarily process the farthest-released fragment last, so the
+    // cursor after the loop wouldn't reliably land on the true final end.
+    let maxFragEnd = 0;
     fragments.forEach((frag, i) => {
       const rippleDelay =
         (fragDistances[i] / maxFragDist) * RIPPLE_SPAN + fragRand() * 0.15;
+      maxFragEnd = Math.max(maxFragEnd, rippleDelay + fragDurations[i]);
       tl.to(
         frag,
         {
@@ -645,6 +666,15 @@ export default function PaperBallAnimation({ handoff, captionRef }: Props) {
         `unfold+=${rippleDelay}`
       );
     });
+
+    // The hero chrome (name, tagline) waits for this exact moment — the
+    // instant the last fragment settles flat and the photograph reads as
+    // one seamless whole — rather than an approximate timeout.
+    tl.call(
+      () => onBannerRevealedRef.current?.(),
+      undefined,
+      `unfold+=${maxFragEnd + 0.1}`
+    );
 
     return () => {
       tl.kill();
@@ -668,6 +698,7 @@ export default function PaperBallAnimation({ handoff, captionRef }: Props) {
       opacity: 1,
       duration: 0.6,
       ease: "power1.out",
+      onComplete: () => onBannerRevealedRef.current?.(),
     });
     return () => {
       tween.kill();

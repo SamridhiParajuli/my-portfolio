@@ -8,7 +8,14 @@ const TAGLINE_TEXT = "Computer Science × Software Development × AI";
 const CHAR_DURATION = 0.05;
 const START_DELAY = 2.6;
 
-export default function Tagline() {
+type TaglineProps = {
+  // Flips true once banner.png has fully unfolded to fill the hero — the
+  // tagline has done its job by then and fades out of the way.
+  hide?: boolean;
+};
+
+export default function Tagline({ hide = false }: TaglineProps) {
+  const wrapperRef = useRef<HTMLParagraphElement>(null);
   const textRef = useRef<HTMLSpanElement>(null);
   const cursorRef = useRef<HTMLSpanElement>(null);
 
@@ -58,8 +65,34 @@ export default function Tagline() {
     };
   }, []);
 
+  useEffect(() => {
+    const wrapper = wrapperRef.current;
+    if (!wrapper || !hide) return;
+
+    const reduceMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)"
+    ).matches;
+
+    if (reduceMotion) {
+      gsap.set(wrapper, { opacity: 0 });
+      return;
+    }
+
+    const tween = gsap.to(wrapper, {
+      opacity: 0,
+      y: -10,
+      filter: "blur(6px)",
+      duration: 1,
+      ease: "power2.inOut",
+    });
+
+    return () => {
+      tween.kill();
+    };
+  }, [hide]);
+
   return (
-    <p className={styles.wrapper}>
+    <p ref={wrapperRef} className={styles.wrapper}>
       <span className={styles.srOnly}>{TAGLINE_TEXT}</span>
       <span aria-hidden="true" className={styles.text} ref={textRef} />
       <span aria-hidden="true" className={styles.cursor} ref={cursorRef} />
