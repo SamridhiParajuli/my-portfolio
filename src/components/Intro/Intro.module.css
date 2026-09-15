@@ -1,0 +1,58 @@
+.intro {
+  position: relative;
+  width: 100%;
+  height: 100dvh;
+  overflow: hidden;
+  background-color: #f4e6d3; /* layer 1: cream background — matches the sketch artwork's own paper tone so there's no visible seam */
+  z-index: 0;
+}
+
+.sketch {
+  /* layer 2: sketch image — sits above the cream background, below future content */
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  filter: none;
+  opacity: 0;
+  will-change: opacity;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sketch {
+    opacity: 0.8;
+    transition: none;
+  }
+}
+
+.content {
+  /* layer 3: typography — sits above the sketch, anchored near the top.
+     flex-direction: column + centered/flex-start swap keeps the Name in the
+     exact same spot as before (single-child centering is equivalent either
+     way) while stacking the Tagline underneath it. */
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.75rem;
+  padding: clamp(2.5rem, 8vh, 5rem) 1.5rem 1.5rem;
+}
+
+.photoLayer {
+  /* sits above the sketch but below the text, centered in the full hero
+     area so the photo composition owns the middle of the page independent
+     of where the text block happens to end. Column layout stacks the
+     caption directly beneath the photo row. */
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(2rem, 5vh, 3.5rem);
+  pointer-events: none;
+}

@@ -1,0 +1,41 @@
+.wrapper {
+  margin: 0;
+  max-width: min(92vw, 760px);
+  text-align: center;
+}
+
+.text {
+  font-family: var(--font-script), cursive;
+  font-weight: 500;
+  font-size: clamp(1.25rem, 3.5vw, 1.9rem);
+  line-height: 1.4;
+  color: #4a3f37;
+}
+
+.cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  background-color: #4a3f37;
+  vertical-align: text-bottom;
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cursor {
+    display: none;
+  }
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

@@ -1,0 +1,26 @@
+.caption {
+  /* Same type treatment as Name.module.css (.name) — matching font, size,
+     weight, and color per design request, just for a longer line of text. */
+  margin: 0;
+  max-width: min(90vw, 900px);
+  font-family: var(--font-display), cursive;
+  font-weight: 400;
+  font-size: clamp(2.25rem, 5.5vw, 3.75rem);
+  line-height: 1.3;
+  letter-spacing: 0;
+  color: #2b2420;
+  text-align: center;
+  text-wrap: balance;
+  opacity: 0;
+  transform: translateY(16px);
+  filter: blur(6px);
+  will-change: opacity, transform, filter;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .caption {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}

@@ -1,0 +1,58 @@
+.layer {
+  /* Spans the full hero (not just the small photo-row box) so the ball has
+     real room to drop and bounce. Sits in the same stacking tier as the
+     sketch/photo layers, below the text content. */
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.ball {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: 50%;
+  box-shadow: 0 10px 22px rgba(43, 36, 32, 0.35);
+  /* Hidden until the effect sizes/positions it at handoff — without this,
+     the canvas renders at its raw default 300x150 size pinned to the
+     layer's top-left corner (with border-radius:50% turning that into a
+     visible oval, shadow and all) before any JS has run. */
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+.shadow {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: 50%;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(43, 36, 32, 0.5) 0%,
+    rgba(43, 36, 32, 0) 72%
+  );
+  filter: blur(1px);
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+.fragment {
+  /* One piece of the same photograph the ball unfolds into -- position,
+     size and background are set imperatively once real geometry is known
+     (same approach as .ball above); transform is what animates it from
+     compressed-at-the-ball to its true position. */
+  position: absolute;
+  background-repeat: no-repeat;
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+.finalBanner {
+  /* Used only for the reduced-motion fallback, which skips the fragment
+     unfold entirely and fades straight to the plain banner. */
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  will-change: opacity;
+}
