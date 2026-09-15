@@ -77,6 +77,12 @@ function formatClipPath(points: ClipPoint[]): string {
 }
 
 const BLOB_CLIP = formatClipPath(blobClipPoints(14, 99, 0.24));
+// Same point count/layout as BLOB_CLIP but with zero jitter, i.e. a plain
+// circle — what the canvas starts as right when it takes over from the
+// tiles (which have just converged into a round cluster themselves), so
+// GSAP can morph clip-path from this straight to BLOB_CLIP afterward
+// instead of the jagged outline appearing all at once.
+const CIRCLE_CLIP = formatClipPath(blobClipPoints(14, 99, 0));
 const CANVAS_RES = 220;
 
 function coverRect(
@@ -142,13 +148,31 @@ export default function PaperBallAnimation({ handoff, captionRef }: Props) {
     if (!container.clientWidth || !container.clientHeight) return;
 
     const cluster = makeCluster(tiles.length);
+    // Captured before compression scales the tiles down, so the ball's
+    // canvas texture is drawn from each photo's original (row) size
+    // regardless of how far the DOM tiles have shrunk by the time
+    // drawBall() runs.
+    const originalTileSize = tiles[0]?.getBoundingClientRect().width || 40;
 
     const containerRect = container.getBoundingClientRect();
     const layerRect = layer.getBoundingClientRect();
 
+    const ballSize = Math.min(
+      130,
+      Math.max(64, layerRect.width * 0.09, container.clientHeight * 0.5)
+    );
+
     const compressCenterX = container.clientWidth / 2;
     const compressCenterY = container.clientHeight / 2;
-    const domClusterRadius = Math.max(28, container.clientHeight * 0.4);
+    // Tight — sized off the ball itself — so the tiles visibly shrink down
+    // into roughly the ball's own footprint as they converge, rather than
+    // piling up at near-full size and only shrinking once the canvas ball
+    // takes over.
+    const domClusterRadius = Math.max(18, ballSize * 0.38);
+    // How much smaller each tile gets as it converges (on top of the
+    // cluster's own per-tile scale variance) — the shrink IS the
+    // ball-forming motion, instead of a separate step after.
+    const COMPRESS_SHRINK = 0.34;
 
     // Ball position, expressed in the full-hero layer's own coordinate
     // space (the layer spans the whole hero so the drop has real room).
@@ -156,11 +180,6 @@ export default function PaperBallAnimation({ handoff, captionRef }: Props) {
       containerRect.left + containerRect.width / 2 - layerRect.left;
     const ballCenterY =
       containerRect.top + containerRect.height / 2 - layerRect.top;
-
-    const ballSize = Math.min(
-      130,
-      Math.max(64, layerRect.width * 0.09, container.clientHeight * 0.5)
-    );
 
     const maxGroundY = layerRect.height - ballSize / 2 - 16;
 
@@ -188,7 +207,7 @@ export default function PaperBallAnimation({ handoff, captionRef }: Props) {
     canvas.height = CANVAS_RES;
     canvas.style.width = `${ballSize}px`;
     canvas.style.height = `${ballSize}px`;
-    canvas.style.clipPath = BLOB_CLIP;
+    canvas.style.clipPath = CIRCLE_CLIP;
 
     const shadowWidth = ballSize * 0.85;
     const shadowHeight = ballSize * 0.24;
@@ -201,7 +220,7 @@ export default function PaperBallAnimation({ handoff, captionRef }: Props) {
       x: ballCenterX,
       y: ballCenterY,
       opacity: 0,
-      scale: 0.6,
+      scale: 1,
     });
     gsap.set(shadow, {
       xPercent: -50,
@@ -219,8 +238,13 @@ export default function PaperBallAnimation({ handoff, captionRef }: Props) {
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
       ctx.clearRect(0, 0, CANVAS_RES, CANVAS_RES);
+      // Each photo is drawn larger on the canvas than its tile's own DOM
+      // size (see the 1.3x below), so without this the browser's default
+      // (often lower-quality) resampling visibly softens them.
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
 
-      const baseTileSize = tiles[0]?.getBoundingClientRect().width || 40;
+      const baseTileSize = originalTileSize;
       const canvasClusterRadius = CANVAS_RES * 0.36;
 
       tiles.forEach((tile, i) => {
@@ -301,27 +325,52 @@ export default function PaperBallAnimation({ handoff, captionRef }: Props) {
     // plus a small buffer, rather than just a brief pause on the line.
     const tl = gsap.timeline({ delay: 2.2 });
 
-    // Phase 2 — compress: gather toward the center, overlapping, rotating.
+    // The ball's texture is composited from the static cluster math and
+    // each photo's pre-captured original size — not from tiles' live,
+    // still-animating positions — so it can be drawn up front, before the
+    // shrink even starts.
+    tl.call(drawBall);
+
+    // Phase 2 — the ball is formed BY the tiles, not handed off to a
+    // stand-in. The same 20 photo elements move inward, overlap, shrink and
+    // rotate toward the cluster in one slow, continuous tween — including
+    // rounding their corners off toward circular as they go, so the group
+    // itself visibly crumples into a round mass rather than a grid of
+    // rectangles suddenly being replaced. Long duration + a wide stagger
+    // spread (~1s across the 20 tiles) is what makes it read as organic
+    // gathering rather than a mechanical snap.
+    const COMPRESS_DURATION = 2.6;
     tl.to(tiles, {
       x: (i: number) => compressCenterX + cluster[i].ox * domClusterRadius,
       y: (i: number) => compressCenterY + cluster[i].oy * domClusterRadius,
       rotation: (i: number) => cluster[i].rotation,
-      scale: (i: number) => cluster[i].scale,
-      duration: 0.9,
-      stagger: { each: 0.02, from: "random" },
+      scale: (i: number) => cluster[i].scale * COMPRESS_SHRINK,
+      borderRadius: "50%",
+      duration: COMPRESS_DURATION,
+      stagger: { each: 0.04, from: "random" },
       ease: "power2.inOut",
     });
 
-    // Phase 3/4 — composite the photos into the ball texture, then
-    // crossfade from the compressed photo mass into the ball.
-    tl.call(drawBall);
-    tl.to(tiles, { opacity: 0, duration: 0.45, ease: "power1.out" }, ">").to(
-      canvas,
-      { opacity: 1, scale: 1, duration: 0.5, ease: "back.out(1.6)" },
-      "<"
-    );
+    // Phase 3 — only once every tile has actually come to rest in its final
+    // compressed, overlapping, rounded position does the canvas ball take
+    // over (needed from here on for the drop/bounce physics and the later
+    // fragment unfold). Nothing is moving or changing size at this instant
+    // — tiles and canvas occupy the exact same spot at the exact same
+    // size/shape — so the cut isn't a visible pop, just a texture handoff
+    // between two things that already look identical.
+    tl.set(tiles, { opacity: 0 });
+    tl.set(canvas, { opacity: 1 });
 
-    // Phase 5 — drop, with gravity-like acceleration.
+    // The jagged, crumpled-paper outline only appears now, easing in as a
+    // continuation of the same crumple motion rather than snapping in
+    // alongside the handoff above.
+    tl.to(canvas, {
+      clipPath: BLOB_CLIP,
+      duration: 0.5,
+      ease: "power1.inOut",
+    });
+
+    // Phase 4 — drop, with gravity-like acceleration.
     tl.to(shadow, { opacity: 0.35, duration: 0.05 }, "+=0.15");
     tl.to(
       canvas,
@@ -339,7 +388,9 @@ export default function PaperBallAnimation({ handoff, captionRef }: Props) {
       "<"
     );
 
-    // Impact 1 — squash on landing.
+    // Impact 1 — squash on landing. This is the first of exactly two
+    // ground touches; after the second (below), the ball stays down and
+    // moves straight into the unfold instead of bouncing again.
     tl.to(canvas, {
       scaleX: 1.35,
       scaleY: 0.62,
@@ -347,7 +398,8 @@ export default function PaperBallAnimation({ handoff, captionRef }: Props) {
       ease: "power1.out",
     }).to(shadow, { scaleX: 1.3, opacity: 0.55, duration: 0.1 }, "<");
 
-    // Phase 6, bounce 1 — up to ~35% of the drop height, then back down.
+    // Phase 5, bounce 1 — up to ~35% of the drop height, then back down.
+    // This landing is the SECOND (and last) drop.
     const bounce1Height = realDrop * 0.35;
     tl.to(canvas, {
       y: groundY - bounce1Height,
@@ -365,7 +417,7 @@ export default function PaperBallAnimation({ handoff, captionRef }: Props) {
       ease: "power2.in",
     }).to(shadow, { scaleX: 1.15, opacity: 0.52, duration: 0.28 }, "<");
 
-    // Impact 2 — smaller squash.
+    // Impact 2 — the second drop's landing squash.
     tl.to(canvas, {
       scaleX: 1.22,
       scaleY: 0.78,
@@ -373,26 +425,9 @@ export default function PaperBallAnimation({ handoff, captionRef }: Props) {
       ease: "power1.out",
     }).to(shadow, { scaleX: 1.2, opacity: 0.54, duration: 0.08 }, "<");
 
-    // Bounce 2 (the LAST bounce) — up to ~12% of the drop height.
-    const bounce2Height = realDrop * 0.12;
-    tl.to(canvas, {
-      y: groundY - bounce2Height,
-      scaleX: 1,
-      scaleY: 1,
-      duration: 0.18,
-      ease: "power2.out",
-    }).to(shadow, { scaleX: 0.85, opacity: 0.35, duration: 0.18 }, "<");
-
-    tl.to(canvas, {
-      y: groundY,
-      scaleX: 0.97,
-      scaleY: 1.04,
-      duration: 0.16,
-      ease: "power2.in",
-    }).to(shadow, { scaleX: 1.08, opacity: 0.5, duration: 0.16 }, "<");
-
-    // Final settle — one very subtle squash, then everything stops for
-    // good. No third bounce.
+    // Final settle — one very subtle squash-recover right after the second
+    // drop's landing, then everything stops for good. No third bounce: from
+    // here the ball stays in place and moves into the unfold.
     tl.to(canvas, {
       scaleX: 1.08,
       scaleY: 0.94,
@@ -413,14 +448,18 @@ export default function PaperBallAnimation({ handoff, captionRef }: Props) {
     // at its correct FINAL spot in the image (so once every fragment's
     // transform returns to identity, the pieces tile back into one exact,
     // seamless photograph). To start, every fragment is pulled in and
-    // scaled down so it sits compressed at the ball's own position and
-    // size, overlapping the others -- the same silhouette as the crumpled
-    // ball. Unfolding is simply each fragment easing that offset back to
-    // zero, at its own staggered, randomized pace: some release early,
-    // some stay folded longer, none of them move in lockstep, and none of
-    // them individually gets "bigger" -- they only travel outward. The
-    // overall area the paper covers grows purely as a side effect of
-    // pieces spreading apart, the way a real sheet does as folds open.
+    // scaled down so it sits compressed at the ball's own (settled,
+    // post-drop) position and size -- and its growth is pinned to
+    // whichever of its own corners sits nearest the ball (via
+    // transformOrigin), so it visibly unfurls FROM that hinge rather than
+    // inflating from its own middle while also flying in sideways, which
+    // is what reads as scattering. Release order isn't random either: it's
+    // driven by each fragment's straight-line distance from the ball, so
+    // the piece nearest the ball opens first and the release visibly
+    // ripples outward to the far corners -- the way unfolding a real sheet
+    // starts at the part in your hand and spreads outward from there.
+    // Durations are long, so the whole thing reads as one slow, continuous
+    // wave rather than pieces popping open independently.
     // ============================================================
 
     const naturalW = bannerPreloadRef.current?.naturalWidth || 1536;
@@ -477,6 +516,7 @@ export default function PaperBallAnimation({ handoff, captionRef }: Props) {
     const fragRand = mulberry32(9911);
     const fragments: HTMLDivElement[] = [];
     const fragDurations: number[] = [];
+    const fragDistances: number[] = [];
 
     fragmentRefs.current.forEach((frag, i) => {
       if (!frag) return;
@@ -499,24 +539,53 @@ export default function PaperBallAnimation({ handoff, captionRef }: Props) {
       frag.style.backgroundPosition = `${bannerOffsetX - drawLeft}px ${
         bannerOffsetY - drawTop
       }px`;
+      // Real 3D rotation is about to sweep this past 90° on its way open;
+      // without this the reverse of the div would flash its (mirrored)
+      // background for an instant as it passes edge-on.
+      frag.style.backfaceVisibility = "hidden";
 
       const centerX = left + width / 2;
       const centerY = top + height / 2;
       const compressedScale =
         (ballSize / Math.max(width, height)) * (0.8 + fragRand() * 0.45);
+      const dx = centerX - ballCenterX;
+      const dy = centerY - groundY;
+
+      // Pin growth to whichever corner of this fragment is nearest the
+      // ball, so scaling up reads as unfurling from a hinge next to the
+      // ball rather than inflating from the fragment's own middle.
+      const originX = dx < 0 ? "100%" : dx > 0 ? "0%" : "50%";
+      const originY = dy < 0 ? "100%" : dy > 0 ? "0%" : "50%";
+
+      // The actual fold: a hinge rotation in 3D (around whichever axis
+      // that corner sits on), not a flat spin. It starts folded almost
+      // edge-on -- like a page pressed shut against the ball -- and opens
+      // to flat as it travels out, which is what makes this read as
+      // paper unfolding instead of a flat shape flying and turning.
+      const foldAngle = 55 + fragRand() * 20;
+      const foldsOnYAxis = Math.abs(dx) >= Math.abs(dy);
+      const startRotationY = foldsOnYAxis ? (dx >= 0 ? foldAngle : -foldAngle) : 0;
+      const startRotationX = foldsOnYAxis ? 0 : dy >= 0 ? -foldAngle : foldAngle;
 
       gsap.set(frag, {
         opacity: 0,
+        transformPerspective: 900,
+        transformOrigin: `${originX} ${originY}`,
         x: ballCenterX - centerX,
-        y: ballCenterY - centerY,
+        y: groundY - centerY,
         scale: compressedScale,
-        rotation: (fragRand() - 0.5) * 160,
-        skewX: (fragRand() - 0.5) * 18,
-        skewY: (fragRand() - 0.5) * 14,
+        rotationX: startRotationX,
+        rotationY: startRotationY,
+        // A little residual Z twist on top of the hinge fold, purely so
+        // creases don't all read as perfectly square -- real paper isn't.
+        rotation: (fragRand() - 0.5) * 10,
       });
 
       fragments.push(frag);
-      fragDurations.push(1.3 + fragRand() * 0.6);
+      // Long, slow durations -- this is meant to read as one unhurried
+      // release, not a quick flourish.
+      fragDurations.push(2 + fragRand() * 0.9);
+      fragDistances.push(Math.hypot(dx, dy));
     });
 
     // Hold — the settled ball stays exactly where it is, briefly.
@@ -536,27 +605,45 @@ export default function PaperBallAnimation({ handoff, captionRef }: Props) {
       "<"
     );
 
-    // The substitution: at this instant the ball and the (still fully
-    // compressed, still ball-sized) fragment cluster occupy the exact same
-    // position and size, so swapping which one is opaque has nothing to
-    // visibly resolve — there's no gap, no fade, no size change, just a
-    // change of which already-matching thing is drawn.
-    tl.set(canvas, { opacity: 0 });
-    tl.set(fragments, { opacity: 1 }, "<");
+    // The substitution: the ball and the (still fully compressed, still
+    // ball-sized) fragment cluster occupy the exact same position and size,
+    // so this is a plain cross-dissolve rather than a cut — the crumpled
+    // photo texture quietly gives way to the folded banner underneath it,
+    // with no instant swap of content (which would read as a pop) and no
+    // gap, size change, or separate element appearing.
+    tl.addLabel("unfold");
+    tl.to(canvas, { opacity: 0, duration: 0.5, ease: "sine.inOut" }, "unfold");
+    tl.to(
+      fragments,
+      { opacity: 1, duration: 0.5, ease: "sine.inOut" },
+      "unfold"
+    );
 
-    // Folds release: each fragment eases its own offset/rotation/skew back
-    // to zero on its own randomized timing, so pieces open one after
-    // another rather than all moving at once.
-    tl.to(fragments, {
-      x: 0,
-      y: 0,
-      scale: 1,
-      rotation: 0,
-      skewX: 0,
-      skewY: 0,
-      duration: (i: number) => fragDurations[i],
-      ease: "sine.inOut",
-      stagger: { each: 0.1, from: "random" },
+    // Folds release: ordered by distance from the ball rather than
+    // randomly, so the fragment nearest the ball opens first and the
+    // release visibly ripples outward to the far corners as one continuous
+    // wave -- overlapping the cross-dissolve above rather than waiting for
+    // it, so there's no seam between "becoming the banner" and "opening
+    // up" either.
+    const maxFragDist = Math.max(...fragDistances, 1);
+    const RIPPLE_SPAN = 1.8;
+    fragments.forEach((frag, i) => {
+      const rippleDelay =
+        (fragDistances[i] / maxFragDist) * RIPPLE_SPAN + fragRand() * 0.15;
+      tl.to(
+        frag,
+        {
+          x: 0,
+          y: 0,
+          scale: 1,
+          rotation: 0,
+          rotationX: 0,
+          rotationY: 0,
+          duration: fragDurations[i],
+          ease: "power2.out",
+        },
+        `unfold+=${rippleDelay}`
+      );
     });
 
     return () => {

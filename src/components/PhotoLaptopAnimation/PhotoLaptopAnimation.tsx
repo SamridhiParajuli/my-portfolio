@@ -158,7 +158,8 @@ export default function PhotoLaptopAnimation({
             src={src}
             alt=""
             fill
-            sizes="84px"
+            sizes="128px"
+            quality={90}
             loading="eager"
             style={{ objectFit: "cover" }}
           />
