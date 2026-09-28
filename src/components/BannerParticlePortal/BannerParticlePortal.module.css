@@ -1,0 +1,47 @@
+.wrapper {
+  /* Sits in the same stacking tier as PaperBallAnimation's own layer, but
+     later in the DOM so it paints on top of the settled banner fragments
+     once revealed -- the "cross-dissolve of identical content" trick
+     already used for the ball-to-fragments handoff: this canvas's very
+     first frame renders the exact same cover-fit image, so switching its
+     opacity on is invisible. Fully inert (opacity 0, no pointer events)
+     until then, so the fold/unfold animation underneath is never obscured. */
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.wrapper[data-revealed="true"] {
+  opacity: 1;
+}
+
+.wrapper[data-revealed="true"][data-active="true"] {
+  /* Once the canvas takes over, it must fully occlude the real (still
+     intact) banner fragments underneath -- otherwise every gap that opens
+     between traveling particles reveals the untouched original photo
+     rather than empty space, which reads as confetti flying in front of
+     an unchanged banner instead of the banner itself coming apart. Dark
+     rather than the hero's own cream tone for two reasons: Name/Navigation
+     render in a light cream ink meant to sit on the (dark, moody) photo,
+     so a cream backdrop would wash them out; and a dark field reads as
+     the "particles in space" the brief asks for, with the doorway's empty
+     interior naturally landing as a dark opening rather than a void that
+     needs a separate fill. Matches Navigation's own darkest frame tone
+     (#100b07) for consistency. Never visible at progress 0, since the
+     particles are packed edge-to-edge there with nothing showing through.
+     Gated on data-active (set in JS only outside prefers-reduced-motion)
+     -- under reduced motion the canvas never draws anything, so this
+     backdrop must stay off or it would paint a plain dark rectangle over
+     the untouched banner instead of leaving it alone. */
+  background-color: #100b07;
+}
+
+.canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}

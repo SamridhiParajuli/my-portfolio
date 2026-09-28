@@ -1,0 +1,640 @@
+"use client";
+
+import { useEffect, useRef, type RefObject } from "react";
+import gsap from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
+import styles from "./BannerParticlePortal.module.css";
+
+gsap.registerPlugin(ScrollTrigger);
+
+const BANNER_SRC = "/images/intro/banner.png";
+
+// Scroll-progress checkpoints: 0..HOME_END is the banner cracking apart in
+// place (mosaic gaps opening, no travel yet); HOME_END..1 is travel, split
+// between the drift/galaxy leg and the final approach into the portal.
+const HOME_END = 0.2;
+const DRIFT_PORTION = 0.55; // fraction of the travel range spent drifting before converging on the portal
+// Per-particle timing spread during travel, as a fraction of the travel
+// range -- what makes pieces arrive at different moments instead of all
+// moving in lockstep.
+const STAGGER = 0.28;
+
+const GRID = {
+  desktop: { cols: 46, maxRows: 30 },
+  mobile: { cols: 26, maxRows: 20 },
+};
+
+// Radians of extra rotation applied to a portal particle per unit of its
+// *original* normalized distance from center (0 at the banner's center,
+// 1 at its farthest corner) -- the differential-rotation shear that curls
+// the field into spiral arms winding around the void instead of a
+// uniform ring.
+const SPIRAL_STRENGTH = 3.0;
+
+// How much extra scroll distance to pin through, expressed relative to the
+// pinned hero's own height (GSAP resolves "%" against the trigger element's
+// natural size) -- keeps the scrub distance proportional to viewport height
+// without needing a separate spacer element in the DOM.
+const PIN_DISTANCE = "+=220%";
+
+type Props = {
+  revealed: boolean;
+  pinRef: RefObject<HTMLElement | null>;
+};
+
+type Particle = {
+  homeX: number;
+  homeY: number;
+  w: number;
+  h: number;
+  sx: number;
+  sy: number;
+  sw: number;
+  sh: number;
+  driftX: number;
+  driftY: number;
+  portalX: number;
+  portalY: number;
+  curveCtrlX: number;
+  curveCtrlY: number;
+  portalDepthScale: number;
+  portalDepthAlpha: number;
+  idlePhase: number;
+  idleSpeed: number;
+  idleAmpX: number;
+  idleAmpY: number;
+  idleSpin: number;
+  dotColor: string;
+  dotRadius: number;
+  seed: number;
+  rotSign: number;
+};
+
+function lerp(a: number, b: number, t: number) {
+  return a + (b - a) * t;
+}
+
+function clamp(v: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, v));
+}
+
+// Deterministic 0..1 pseudo-random from an integer index -- reproducible
+// per particle across rebuilds, no seeded-RNG state to carry around.
+function hash(i: number) {
+  const x = Math.sin(i * 12.9898) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+// Angle -> radius multiplier for the void's boundary: a few irregular sine
+// harmonics so the opening bulges and pinches per direction instead of
+// tracing a smooth ellipse (let alone a rectangle) -- the organic silhouette
+// the portal's particle density gathers around.
+function voidRadiusMult(angle: number) {
+  return (
+    1 +
+    0.1 * Math.sin(angle * 1 + 1.8) +
+    0.18 * Math.sin(angle * 3 + 0.4) +
+    0.11 * Math.sin(angle * 5 + 3.1) +
+    0.07 * Math.sin(angle * 8 + 5.2)
+  );
+}
+
+export default function BannerParticlePortal({ revealed, pinRef }: Props) {
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const revealedRef = useRef(revealed);
+  const renderRef = useRef<(progress: number) => void>(() => {});
+  const lastProgressRef = useRef(0);
+  const triggerRef = useRef<ScrollTrigger | null>(null);
+  // Seconds elapsed since this effect mounted -- read inside render() to
+  // drive the idle orbit/spin so drifted particles keep moving between
+  // scroll events instead of freezing the instant scroll stops.
+  const timeRef = useRef(0);
+
+  useEffect(() => {
+    revealedRef.current = revealed;
+  }, [revealed]);
+
+  // Reveals the canvas the instant the real fold/unfold animation settles.
+  // At progress 0 every particle sits at its exact home cell with no gap,
+  // rotation or shrink, so the canvas's first frame reconstructs the
+  // banner pixel-for-pixel -- this opacity flip is invisible, never two
+  // different-looking banners on screen, just a handoff between two that
+  // already match exactly.
+  useEffect(() => {
+    if (!revealed) return;
+    renderRef.current(lastProgressRef.current);
+    triggerRef.current?.refresh();
+  }, [revealed]);
+
+  useEffect(() => {
+    const wrapper = wrapperRef.current;
+    const canvas = canvasRef.current;
+    const pinTarget = pinRef.current;
+    if (!wrapper || !canvas || !pinTarget) return;
+
+    const reduceMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)"
+    ).matches;
+    // Reduced motion skips the scroll-jacked transform entirely -- no pin,
+    // no extra scroll distance, the settled banner is simply left alone.
+    // data-active gates the wrapper's opaque backdrop (see the CSS): it
+    // must stay off here, otherwise the wrapper would still paint over the
+    // real banner once revealed with nothing drawn on the canvas to show
+    // in its place -- a plain dark rectangle instead of the banner.
+    if (reduceMotion) return;
+    wrapper.dataset.active = "true";
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const img = new window.Image();
+    img.src = BANNER_SRC;
+    let imgReady = false;
+
+    let cssW = 0;
+    let cssH = 0;
+    let particles: Particle[] = [];
+
+    const easeTravel = gsap.parseEase("power2.inOut");
+    const easeFrag = gsap.parseEase("power1.out");
+
+    const buildParticles = () => {
+      if (!imgReady || cssW === 0 || cssH === 0) return;
+
+      const small = window.innerWidth < 700;
+      const { cols: baseCols, maxRows } = small ? GRID.mobile : GRID.desktop;
+
+      const aspect = cssW / cssH;
+      let cols = baseCols;
+      let rows = Math.max(1, Math.round(cols / aspect));
+      if (rows > maxRows) {
+        rows = maxRows;
+        cols = Math.max(1, Math.round(rows * aspect));
+      }
+
+      const blockW = cssW / cols;
+      const blockH = cssH / rows;
+
+      // Cover-fit mapping between the displayed canvas and the source
+      // image's own natural pixel space -- same math CSS background-size:
+      // cover would use -- so each cell's destination rect can be inverted
+      // back into an exact source crop.
+      const scale = Math.max(
+        cssW / img.naturalWidth,
+        cssH / img.naturalHeight
+      );
+      const drawW = img.naturalWidth * scale;
+      const drawH = img.naturalHeight * scale;
+      const offsetX = (cssW - drawW) / 2;
+      const offsetY = (cssH - drawH) / 2;
+
+      const cx = cssW / 2;
+      const cy = cssH / 2;
+      // Distance from center to the grid's farthest corner -- used to
+      // normalize each particle's original distance from center to 0..1
+      // for the spiral twist below, independent of screen size.
+      const maxGridRadius = Math.hypot(cssW / 2, cssH / 2);
+      // Half-extents of the central void the portal particles gather
+      // around -- the closest a particle's target can be to center before
+      // the organic bulge/pinch, spiral twist, and per-particle scatter
+      // below push it outward. Nothing is ever targeted inside this
+      // boundary, which is what keeps the center dark and empty without
+      // drawing anything there. Roughly circular (a whirlpool/wormhole
+      // opening, not a vertical doorway slit) -- the organic harmonics
+      // still rough up the edge so it's not a perfect circle.
+      const voidBase = clamp(Math.min(cssW, cssH) * 0.34, 60, 340);
+      const voidHalfW = voidBase;
+      const voidHalfH = voidBase * 0.94;
+
+      // One averaged color per tile, sampled up front -- a single
+      // downscaled drawImage (banner -> a cols x rows canvas, one pixel
+      // per tile) plus one getImageData, instead of sampling each tile's
+      // crop individually. This is what a tile's glow-dot particle renders
+      // as once it transforms (see render()); lightened slightly so it
+      // still reads brightly against black even where the source photo is
+      // dark or muted.
+      const sampleCanvas = document.createElement("canvas");
+      sampleCanvas.width = cols;
+      sampleCanvas.height = rows;
+      const sampleCtx = sampleCanvas.getContext("2d", {
+        willReadFrequently: true,
+      });
+      let sampleData: Uint8ClampedArray | null = null;
+      if (sampleCtx) {
+        sampleCtx.drawImage(
+          img,
+          offsetX / blockW,
+          offsetY / blockH,
+          drawW / blockW,
+          drawH / blockH
+        );
+        sampleData = sampleCtx.getImageData(0, 0, cols, rows).data;
+      }
+
+      const list: Particle[] = [];
+      let idx = 0;
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          const homeX = col * blockW + blockW / 2;
+          const homeY = row * blockH + blockH / 2;
+
+          const sx = clamp(
+            (col * blockW - offsetX) / scale,
+            0,
+            img.naturalWidth
+          );
+          const sy = clamp(
+            (row * blockH - offsetY) / scale,
+            0,
+            img.naturalHeight
+          );
+          const sw = clamp(blockW / scale, 1, img.naturalWidth - sx);
+          const sh = clamp(blockH / scale, 1, img.naturalHeight - sy);
+
+          const seed = hash(idx);
+          const seed2 = hash(idx * 7.31 + 1);
+          const seed3 = hash(idx * 3.17 + 2);
+          const seed4 = hash(idx * 5.77 + 9);
+          const seed5 = hash(idx * 2.13 + 5);
+          const rotSign = seed2 > 0.5 ? 1 : -1;
+
+          const dx = homeX - cx;
+          const dy = homeY - cy;
+          const baseAngle = Math.atan2(dy, dx);
+          const baseRadius = Math.hypot(dx, dy);
+
+          // Galaxy/drift target: pushed outward well past its home radius,
+          // with a per-particle swirl offset added to its angle (rather
+          // than a pure radial expansion) so the field reads as orbiting
+          // rather than simply exploding outward, and squashed vertically
+          // into a looser disc for a galaxy-plane feel.
+          const swirl = (seed - 0.5) * 1.6;
+          const driftAngle = baseAngle + swirl;
+          const driftRadius = baseRadius * lerp(1.35, 2.3, seed2) + 40;
+          const driftX = cx + Math.cos(driftAngle) * driftRadius;
+          const driftY = cy + Math.sin(driftAngle) * driftRadius * 0.68;
+
+          // Portal target: no rectangle, no drawn outline. Radial placement
+          // (how far outside the void a particle lands) is decided first,
+          // independent of angle -- most land close to the rim (denser
+          // immediately around the opening), fewer scatter further out.
+          // Each particle is also reassigned to its own angle around
+          // center (a swirl offset decorrelated from the drift swirl
+          // above), so the drift->portal paths cross rather than mapping
+          // 1:1.
+          const density = Math.pow(seed2, 2.4); // biased toward 0 -> most particles land near the rim
+          const scatter =
+            lerp(0.04, 2.0, density) + (seed4 - 0.5) * (0.15 + density * 0.6);
+          const radiusMult = clamp(1 + scatter, 0.8, 3.2);
+
+          // Spiral twist: the further a particle's *original* position sat
+          // from center in the intact banner, the further it gets rotated
+          // around center for the portal -- a differential-rotation shear
+          // (the same mechanism that winds real spiral galaxies) that
+          // curls the whole field into arms winding around the void,
+          // instead of a uniform ring. Tied to baseRadius rather than the
+          // final scatter distance so it varies smoothly across virtually
+          // every particle, not just the sparse outer scatter. Every
+          // particle twists the same direction (SPIRAL_STRENGTH is a
+          // constant, not per-particle) so the arms read as one coherent
+          // vortex rather than noise.
+          const normRadius = clamp(baseRadius / maxGridRadius, 0, 1);
+          const spiralTwist = normRadius * SPIRAL_STRENGTH;
+          const portalAngle = baseAngle + (seed3 - 0.5) * 0.8 + spiralTwist;
+
+          // The void's boundary still bulges and pinches per angle
+          // (voidRadiusMult) instead of tracing a perfect circle, and
+          // per-particle jitter (folded into `scatter` above) keeps the
+          // arms from lining up into a clean, hard-edged spiral.
+          const shapeMult = clamp(voidRadiusMult(portalAngle), 0.65, 1.4);
+          const rimX = voidHalfW * shapeMult;
+          const rimY = voidHalfH * shapeMult;
+          const portalX = cx + Math.cos(portalAngle) * rimX * radiusMult;
+          const portalY = cy + Math.sin(portalAngle) * rimY * radiusMult;
+
+          // Bends the drift->portal leg into an arc (quadratic Bezier via a
+          // perpendicular control point) instead of a straight slide, so
+          // the final approach still reads as curved, orbit-like motion.
+          const segX = portalX - driftX;
+          const segY = portalY - driftY;
+          const segLen = Math.hypot(segX, segY) || 1;
+          const curveStrength = segLen * lerp(0.12, 0.42, seed);
+          const curveCtrlX =
+            (driftX + portalX) / 2 +
+            (-segY / segLen) * curveStrength * rotSign;
+          const curveCtrlY =
+            (driftY + portalY) / 2 +
+            (segX / segLen) * curveStrength * rotSign;
+
+          // Depth: closer particles land bigger and more opaque and draw
+          // on top (see the sort below); farther ones shrink, dim, and sit
+          // behind -- so the formation has real front-to-back depth instead
+          // of every particle living on one flat plane.
+          const portalDepthScale = lerp(0.55, 1.55, seed5);
+          const portalDepthAlpha = lerp(0.4, 1, seed5);
+
+          // Idle drift: once a particle has left its home cell it keeps
+          // gently orbiting/spinning using real elapsed time (see the
+          // render loop's timeRef) instead of sitting frozen whenever
+          // scroll stops -- the "still floating in space" motion for the
+          // drifted/portal state. Amplitude is tied to the particle's own
+          // cell size so it scales naturally across grid density/screens.
+          const seed6 = hash(idx * 4.43 + 13);
+          const seed7 = hash(idx * 6.19 + 17);
+          const seed8 = hash(idx * 8.87 + 23);
+          const idlePhase = seed6 * Math.PI * 2;
+          const idleSpeed = lerp(0.4, 1.0, seed7);
+          const idleAmpX = blockW * lerp(0.15, 0.55, seed);
+          const idleAmpY = blockH * lerp(0.15, 0.55, seed3);
+          const idleSpin = (seed8 - 0.5) * 1.2;
+
+          const sampleIdx = (row * cols + col) * 4;
+          const rawR = sampleData ? sampleData[sampleIdx] : 200;
+          const rawG = sampleData ? sampleData[sampleIdx + 1] : 200;
+          const rawB = sampleData ? sampleData[sampleIdx + 2] : 200;
+          const dotColor = `${Math.round(lerp(rawR, 255, 0.15))},${Math.round(
+            lerp(rawG, 255, 0.15)
+          )},${Math.round(lerp(rawB, 255, 0.15))}`;
+          const dotRadius = Math.min(blockW, blockH) * lerp(0.09, 0.18, seed4);
+
+          list.push({
+            homeX,
+            homeY,
+            w: blockW,
+            h: blockH,
+            sx,
+            sy,
+            sw,
+            sh,
+            driftX,
+            driftY,
+            portalX,
+            portalY,
+            curveCtrlX,
+            curveCtrlY,
+            portalDepthScale,
+            portalDepthAlpha,
+            idlePhase,
+            idleSpeed,
+            idleAmpX,
+            idleAmpY,
+            idleSpin,
+            dotColor,
+            dotRadius,
+            seed,
+            rotSign,
+          });
+          idx++;
+        }
+      }
+      // Farther (smaller/dimmer) particles first, closer ones last, so
+      // closer particles naturally overlap on top of farther ones once the
+      // portal formation's paths start crossing.
+      list.sort((a, b) => a.portalDepthScale - b.portalDepthScale);
+      particles = list;
+    };
+
+    const render = (progress: number) => {
+      if (!imgReady || cssW === 0 || cssH === 0) return;
+      ctx.clearRect(0, 0, cssW, cssH);
+
+      for (const p of particles) {
+        const fragT = clamp(progress / HOME_END, 0, 1);
+        const fragEase = easeFrag(fragT);
+
+        let x = p.homeX;
+        let y = p.homeY;
+        // 0 = still home, 0.5 = fully drifted, 1 = fully at the portal --
+        // continuous across both travel legs, used to drive scale/rotation
+        // so nothing jumps at the drift/portal handoff.
+        let travelT = 0;
+        // 0 until the second leg starts, ramping to 1 as the particle
+        // reaches its portal target -- blends the depth scale/alpha in
+        // only during the final approach, leaving the explosion/drift legs
+        // untouched.
+        let depthWeight = 0;
+
+        if (progress > HOME_END) {
+          const travel = clamp((progress - HOME_END) / (1 - HOME_END), 0, 1);
+          // Shifts each particle's own start of travel by up to STAGGER,
+          // guaranteed to still reach 1 exactly when travel does -- the
+          // "different pieces move at different times" organic stagger.
+          const effTravel = clamp(
+            (travel - p.seed * STAGGER) / (1 - STAGGER),
+            0,
+            1
+          );
+
+          if (effTravel <= DRIFT_PORTION) {
+            const dt = easeTravel(effTravel / DRIFT_PORTION);
+            x = lerp(p.homeX, p.driftX, dt);
+            y = lerp(p.homeY, p.driftY, dt);
+            travelT = dt * 0.5;
+          } else {
+            const dt = easeTravel(
+              (effTravel - DRIFT_PORTION) / (1 - DRIFT_PORTION)
+            );
+            // Quadratic Bezier through the precomputed control point --
+            // curves the final approach into the portal instead of
+            // sliding straight across the gap.
+            const it = 1 - dt;
+            x =
+              it * it * p.driftX +
+              2 * it * dt * p.curveCtrlX +
+              dt * dt * p.portalX;
+            y =
+              it * it * p.driftY +
+              2 * it * dt * p.curveCtrlY +
+              dt * dt * p.portalY;
+            travelT = 0.5 + dt * 0.5;
+            depthWeight = dt;
+          }
+        }
+
+        // Idle orbit: only once a particle has actually left its home cell
+        // (travelT > 0) -- fades in smoothly alongside the same travel
+        // progress, so the still-intact banner at progress 0 is never
+        // disturbed, but everything adrift keeps gently circling in place.
+        if (travelT > 0) {
+          const idleAngle = timeRef.current * p.idleSpeed + p.idlePhase;
+          x += Math.cos(idleAngle) * p.idleAmpX * travelT;
+          y += Math.sin(idleAngle * 1.15 + p.seed * 6.28) * p.idleAmpY * travelT;
+        }
+
+        const gapShrink = lerp(1, 0.78, fragEase);
+        const travelShrink = lerp(1, 0.55, travelT);
+        const depthScale = lerp(1, p.portalDepthScale, depthWeight);
+        const depthAlpha = lerp(1, p.portalDepthAlpha, depthWeight);
+        const scale = gapShrink * travelShrink * depthScale;
+        const rotation =
+          p.rotSign * (fragEase * 6 + travelT * 26) * (Math.PI / 180) +
+          p.idleSpin * timeRef.current * travelT;
+
+        // +1px regardless of scale: at rest (scale~1) this is a tiny
+        // neighbor-overlap that hides the sub-pixel seams floating-point
+        // tile edges otherwise leave under canvas antialiasing (the same
+        // fix PaperBallAnimation's fragments use); it stays negligible
+        // once gapShrink/travelShrink actually pull tiles apart on
+        // purpose, so the intentional gaps still read clearly.
+        const w = p.w * scale + 1;
+        const h = p.h * scale + 1;
+
+        // Photo tile -> glow-dot cross-fade: 0 (still a little photo
+        // fragment) through most of the crack/explosion, easing up to 1
+        // (a small glowing point, nothing photographic left) by the time a
+        // particle finishes its journey. Smoothstepped so the transform
+        // itself reads as gradual rather than a hard swap partway through.
+        const particleT = travelT * travelT * (3 - 2 * travelT);
+
+        if (particleT < 0.999) {
+          ctx.save();
+          ctx.globalAlpha = depthAlpha * (1 - particleT);
+          ctx.translate(x, y);
+          ctx.rotate(rotation);
+          ctx.drawImage(img, p.sx, p.sy, p.sw, p.sh, -w / 2, -h / 2, w, h);
+          ctx.restore();
+        }
+
+        if (particleT > 0.001) {
+          // Gentle brightness pulse (reusing the idle orbit's own
+          // speed/phase so it stays in sync with that particle's motion)
+          // so the settled dust field reads as alive rather than static.
+          const twinkle =
+            0.82 +
+            0.18 * Math.sin(timeRef.current * p.idleSpeed * 2.3 + p.idlePhase * 1.7);
+          const dotR = p.dotRadius * depthScale * twinkle;
+          const alpha = depthAlpha * particleT;
+
+          // Three concentric, additively-blended circles fake a soft glow
+          // falloff cheaply (no per-particle gradients) -- a dim wide
+          // halo, a brighter mid ring, and a bright core, which is what
+          // gives the dust its bloom against the black backdrop and lets
+          // overlapping particles naturally brighten each other.
+          ctx.save();
+          ctx.globalCompositeOperation = "lighter";
+          ctx.fillStyle = `rgb(${p.dotColor})`;
+
+          ctx.globalAlpha = alpha * 0.1;
+          ctx.beginPath();
+          ctx.arc(x, y, dotR * 2.0, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.globalAlpha = alpha * 0.22;
+          ctx.beginPath();
+          ctx.arc(x, y, dotR * 1.3, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.globalAlpha = alpha * 0.9;
+          ctx.beginPath();
+          ctx.arc(x, y, dotR, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
+      }
+    };
+    renderRef.current = render;
+
+    let trigger: ScrollTrigger | null = null;
+
+    const resize = () => {
+      const rect = pinTarget.getBoundingClientRect();
+      cssW = rect.width;
+      cssH = rect.height;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Math.round(cssW * dpr);
+      canvas.height = Math.round(cssH * dpr);
+      canvas.style.width = `${cssW}px`;
+      canvas.style.height = `${cssH}px`;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      buildParticles();
+      render(lastProgressRef.current);
+      trigger?.refresh();
+    };
+
+    let resizeFrame = 0;
+    const onResize = () => {
+      cancelAnimationFrame(resizeFrame);
+      resizeFrame = requestAnimationFrame(resize);
+    };
+
+    const handleLoad = () => {
+      imgReady = true;
+      resize();
+    };
+
+    if (img.complete && img.naturalWidth > 0) {
+      handleLoad();
+    } else {
+      img.addEventListener("load", handleLoad);
+    }
+
+    trigger = ScrollTrigger.create({
+      trigger: pinTarget,
+      start: "top top",
+      end: PIN_DISTANCE,
+      pin: pinTarget,
+      // The hero's parent (<body>) is a flex container (Tailwind's "flex
+      // flex-col" in layout.tsx). GSAP's default pinSpacing heuristic
+      // silently disables itself for flex-parented pins unless told
+      // otherwise, which left zero scroll distance actually reserved even
+      // though the trigger's own math was correct -- this forces it on.
+      pinSpacing: true,
+      scrub: true,
+      // Rendering itself happens on the rAF loop below (so idle motion
+      // keeps animating between scroll events) -- this only needs to hand
+      // it the latest scroll-driven progress.
+      onUpdate: (self) => {
+        lastProgressRef.current = self.progress;
+      },
+    });
+    triggerRef.current = trigger;
+
+    window.addEventListener("resize", onResize);
+
+    // Keeps rendering every frame (not just on scroll) so idle orbit/spin
+    // motion plays continuously once particles are adrift, rather than
+    // freezing the instant the user stops scrolling. Gated on actually
+    // being on screen -- revealed never goes back to false once the intro
+    // settles, so without this the loop would otherwise keep redrawing
+    // forever after the user scrolls past the hero entirely.
+    let isVisible = false;
+    const startTime = performance.now();
+    let rafId = 0;
+    const tick = (now: number) => {
+      timeRef.current = (now - startTime) / 1000;
+      if (revealedRef.current && isVisible) render(lastProgressRef.current);
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+
+    const visibilityObserver = new IntersectionObserver(
+      (entries) => {
+        isVisible = entries[0]?.isIntersecting ?? false;
+      },
+      { threshold: 0 }
+    );
+    visibilityObserver.observe(wrapper);
+
+    return () => {
+      window.removeEventListener("resize", onResize);
+      cancelAnimationFrame(resizeFrame);
+      cancelAnimationFrame(rafId);
+      visibilityObserver.disconnect();
+      img.removeEventListener("load", handleLoad);
+      trigger?.kill();
+      triggerRef.current = null;
+    };
+  }, [pinRef]);
+
+  return (
+    <div
+      ref={wrapperRef}
+      className={styles.wrapper}
+      data-revealed={revealed}
+      aria-hidden="true"
+    >
+      <canvas ref={canvasRef} className={styles.canvas} />
+    </div>
+  );
+}
