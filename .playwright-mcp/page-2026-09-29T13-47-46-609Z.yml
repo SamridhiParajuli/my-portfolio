@@ -1,0 +1,52 @@
+- generic [active] [ref=f1e1]:
+  - generic [ref=f1e2]:
+    - generic:
+      - generic [aria-hidden]:
+        - generic: A collage of small personal photographs arranging into a single row
+      - paragraph: A collection of what I've learned, built, and loved along the way.
+    - generic:
+      - region "Education":
+        - heading "Education" [level=2]
+        - list:
+          - listitem: Bachelor of Computer Science and Engineering, Vellore Institute of Technology, India
+          - listitem: Ontario Graduate Certificate in Full Stack Software Development, Lambton College, Canada
+      - region "Certifications":
+        - heading "Certifications" [level=2]
+        - list:
+          - listitem: Introduction to Artificial Intelligence
+          - listitem: "Artificial Intelligence Foundations: Neural Networks"
+    - generic:
+      - heading "Samridhi Parajuli" [level=1] [ref=f1e3]
+      - paragraph [ref=f1e4]:
+        - generic [ref=f1e5]: Computer Science × Software Development × AI
+    - generic:
+      - button "Menu":
+        - generic [aria-hidden]: "00"
+      - navigation [aria-hidden]:
+        - list:
+          - listitem:
+            - link:
+              - /url: "#home"
+              - generic: "01"
+              - generic: Home
+          - listitem:
+            - link:
+              - /url: "#projects"
+              - generic: "02"
+              - generic: Projects
+          - listitem:
+            - link:
+              - /url: "#education"
+              - generic: "03"
+              - generic: Education & Certificates
+          - listitem:
+            - link:
+              - /url: "#experience"
+              - generic: "04"
+              - generic: Experience
+          - listitem:
+            - link:
+              - /url: "#contact"
+              - generic: "05"
+              - generic: Contact
+  - button "Open Next.js Dev Tools" [ref=f1e12] [cursor=pointer]

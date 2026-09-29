@@ -1,0 +1,41 @@
+- generic [active] [ref=f32e1]:
+  - generic [ref=f32e2]:
+    - generic:
+      - generic [aria-hidden]:
+        - generic: A collage of small personal photographs arranging into a single row
+      - paragraph: A collection of what I've learned, built, and loved along the way.
+    - generic [ref=f32e3]:
+      - heading "Samridhi Parajuli" [level=1] [ref=f32e4]
+      - paragraph [ref=f32e5]:
+        - generic [ref=f32e6]: Computer Science × Software Development × AI
+    - generic:
+      - button "Menu":
+        - generic [aria-hidden]: "00"
+      - navigation [aria-hidden]:
+        - list:
+          - listitem:
+            - link:
+              - /url: "#home"
+              - generic: "01"
+              - generic: Home
+          - listitem:
+            - link:
+              - /url: "#projects"
+              - generic: "02"
+              - generic: Projects
+          - listitem:
+            - link:
+              - /url: "#education"
+              - generic: "03"
+              - generic: Education & Certificates
+          - listitem:
+            - link:
+              - /url: "#experience"
+              - generic: "04"
+              - generic: Experience
+          - listitem:
+            - link:
+              - /url: "#contact"
+              - generic: "05"
+              - generic: Contact
+  - button "Open Next.js Dev Tools" [ref=f32e13] [cursor=pointer]

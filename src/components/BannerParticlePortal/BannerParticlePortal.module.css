@@ -45,3 +45,49 @@
   width: 100%;
   height: 100%;
 }
+
+/* The Education book once it opens, drawn live. Placed and sized over the
+   part of the page the book can reach from JS (bookOpening), and hidden
+   until the moment it takes over from the painted book. */
+.book {
+  position: absolute;
+  display: block;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* What catches the click on the closed book. It adds nothing to the
+   picture: the book itself is the thing to click. Positioned from JS, and
+   only there while the book is shut and whole. */
+.bookHit {
+  position: absolute;
+  display: none;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.bookHit:focus {
+  outline: none;
+}
+
+.bookHit:focus-visible {
+  outline: 1px solid rgba(255, 214, 160, 0.55);
+  outline-offset: 10px;
+}
+
+/* The book's first page, for screen readers: on screen it is only ever ink
+   in the paper. */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

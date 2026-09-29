@@ -39,6 +39,13 @@
   justify-content: flex-start;
   gap: 0.75rem;
   padding: clamp(2.5rem, 8vh, 5rem) 1.5rem 1.5rem;
+  /* The layer covers the whole hero but only its text is anything: clicks
+     elsewhere go through to what is under it (the Education book). */
+  pointer-events: none;
+}
+
+.content > * {
+  pointer-events: auto;
 }
 
 .photoLayer {
