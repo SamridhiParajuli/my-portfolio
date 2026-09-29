@@ -1,0 +1,645 @@
+/* Registered so the per-frame values JS writes are real typed values the
+   whole sheet can use directly -- opacity, angles and lengths, with sane
+   initials for the frames before JS has said anything. */
+@property --ps-near {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+@property --ps-yaw {
+  syntax: "<angle>";
+  inherits: true;
+  initial-value: 0deg;
+}
+@property --ps-tilt {
+  syntax: "<angle>";
+  inherits: true;
+  initial-value: 0deg;
+}
+@property --ps-res {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+@property --ps-haze {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
+/* A distant world's entrance (see BEAT_END in projectStations). JS writes
+   these only while one is playing; their initial values are the resting
+   look, so the moment it ends and they are removed nothing moves. */
+@property --ps-slit-x {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 1;
+}
+@property --ps-slit-y {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 1;
+}
+@property --ps-flash {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+@property --ps-glint {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 1;
+}
+@property --ps-rays {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+@property --ps-rays-scale {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 1;
+}
+@property --ps-spin {
+  syntax: "<angle>";
+  inherits: true;
+  initial-value: 0deg;
+}
+@property --ps-type {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 1;
+}
+@property --ps-track {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0.44;
+}
+@property --ps-rule {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 1;
+}
+@property --ps-sheen {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 1;
+}
+
+.layer {
+  /* Sits between the journey canvas and the dust canvas above it, so these
+     screens block the field behind them the way a solid object should,
+     while the motes that really are in front of one still drift across it.
+     overflow keeps a screen sweeping past the lens inside the hero. */
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.station {
+  position: absolute;
+  left: 0;
+  top: 0;
+  /* Layout size = the size this screen reads at its reference distance, so
+     the transform below is a pure distance ratio and is 1 exactly when the
+     screen is the subject of the shot -- which is where its edges and its
+     title need to be crisp. */
+  width: var(--ps-w, 900px);
+  aspect-ratio: 16 / 9;
+  /* JS owns transform/opacity/visibility from here on. Hidden until the
+     camera is near enough for this one to exist at all, which also keeps
+     it out of the accessibility tree while it is nowhere in sight. */
+  visibility: hidden;
+  opacity: 0;
+  /* Local vanishing point, so the yaw below is a real turn in space rather
+     than a flat skew -- and it scales with the panel, as it should. */
+  perspective: 1500px;
+  will-change: transform, opacity;
+  --ps-accent: 255, 198, 146;
+}
+
+.frame {
+  position: absolute;
+  inset: 0;
+  transform: rotateY(var(--ps-yaw)) rotateX(var(--ps-tilt));
+  /* Focus, not fade: out of focus while the camera is too far to resolve
+     it, sharp while it is the subject, and out of focus again while it is
+     too close to hold on the way past. In the node's own px, so the
+     softness scales with the screen. */
+  filter: blur(var(--ps-haze));
+}
+
+/* ---- the object ---- */
+
+.panel {
+  /* A machined thing with a rim, not a div with a border: the media sits
+     inset inside a body that catches a little of the light around it. */
+  position: absolute;
+  inset: 0;
+  padding: 7px;
+  border-radius: 2px;
+  background: linear-gradient(
+    154deg,
+    rgba(72, 58, 48, 0.62),
+    rgba(14, 10, 14, 0.94) 46%,
+    rgba(38, 28, 38, 0.66)
+  );
+  box-shadow:
+    0 0 0 1px rgba(var(--ps-accent), 0.16),
+    0 24px 80px rgba(0, 0, 0, 0.6);
+}
+
+.panel::after {
+  /* The light the screen gives off, seen from too far away to resolve any
+     surface behind it: a denser knot of its own colour at the heart of the
+     glow it stands in. It condenses away exactly as the surface resolves,
+     so a dark rectangle never arrives inside the light -- the light is
+     what turns into the screen. Sits over the media slot, so a <video>
+     there emerges the same way. */
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    64% 72% at 50% 54%,
+    rgba(var(--ps-accent), 0.52),
+    rgba(var(--ps-accent), 0.2) 60%,
+    rgba(var(--ps-accent), 0.07)
+  );
+  opacity: calc((1 - var(--ps-res)) * (1 - var(--ps-res) * 0.5));
+}
+
+.station[data-distant] .panel::after {
+  /* A distant world is seen first as the light around it (the glow drawn on
+     the canvas), so what comes out of the haze here is its silhouette: only
+     a thin veil of that light still lying across it, clearing as the haze
+     does. At full strength this knot would be a second, brighter light that
+     then has to go dark -- the one moment in the approach that reads as a
+     switch. */
+  opacity: calc(
+    (1 - var(--ps-res)) * (1 - var(--ps-res)) * (1 - var(--ps-res) * 0.5) *
+      0.4
+  );
+}
+
+.media {
+  position: absolute;
+  inset: 7px;
+  overflow: hidden;
+  background: #05040a;
+}
+
+.media video,
+.media img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* ---- placeholder: a screen that is powered up with nothing on it yet ---- */
+
+.placeholder {
+  position: absolute;
+  inset: 0;
+  /* Light pooling up from the lower edge, a faint cold cast from off to
+     one side, over a body that is very nearly black -- a surface catching
+     the light of the place it is standing in, not a filled rectangle. */
+  background:
+    radial-gradient(
+      124% 84% at 50% 124%,
+      rgba(var(--ps-accent), 0.38),
+      transparent 60%
+    ),
+    radial-gradient(
+      88% 70% at 18% -26%,
+      rgba(178, 196, 255, 0.07),
+      transparent 72%
+    ),
+    linear-gradient(180deg, #08070d 0%, #040308 60%, #07050c 100%);
+}
+
+.scan,
+.sheen,
+.horizon,
+.vignette,
+.edge,
+.corners,
+.bloom {
+  position: absolute;
+  pointer-events: none;
+}
+
+.scan {
+  inset: -60% 0;
+  background: repeating-linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.05) 0 2px,
+    transparent 2px 6px
+  );
+  opacity: 0.5;
+  animation: scanDrift 9s linear infinite;
+}
+
+.sheen {
+  inset: -30%;
+  background: linear-gradient(
+    104deg,
+    transparent 40%,
+    rgba(var(--ps-accent), 0.07) 47%,
+    rgba(255, 255, 255, 0.035) 52%,
+    transparent 61%
+  );
+  animation: sheenSweep 13s ease-in-out infinite;
+}
+
+.horizon {
+  left: 9%;
+  right: 9%;
+  top: 57%;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(var(--ps-accent), 0.5),
+    transparent
+  );
+}
+
+.vignette {
+  inset: 0;
+  background: radial-gradient(
+    118% 118% at 50% 48%,
+    transparent 38%,
+    rgba(0, 0, 0, 0.58) 100%
+  );
+}
+
+/* ---- the light it throws ---- */
+
+.edge {
+  /* Hairline right at the media's own edge, inside the rim. Fine detail,
+     so it only exists once the surface has resolved enough to carry it. */
+  inset: 6px;
+  opacity: var(--ps-res);
+  border: 1px solid rgba(var(--ps-accent), 0.32);
+  box-shadow: inset 0 0 34px rgba(var(--ps-accent), 0.08);
+}
+
+.corners {
+  /* Four brackets at the corners -- the same viewfinder mark the MENU
+     trigger already wears, which is what makes these read as instruments
+     standing in the world rather than as framed pictures. Eight background
+     slabs (a horizontal and a vertical arm per corner) so it costs no
+     extra elements. */
+  inset: 5px;
+  opacity: var(--ps-res);
+  --tick: rgba(var(--ps-accent), 0.85);
+  --tickT: 2px;
+  --tickL: 34px;
+  background-image: linear-gradient(var(--tick), var(--tick)),
+    linear-gradient(var(--tick), var(--tick)),
+    linear-gradient(var(--tick), var(--tick)),
+    linear-gradient(var(--tick), var(--tick)),
+    linear-gradient(var(--tick), var(--tick)),
+    linear-gradient(var(--tick), var(--tick)),
+    linear-gradient(var(--tick), var(--tick)),
+    linear-gradient(var(--tick), var(--tick));
+  background-repeat: no-repeat;
+  background-size: var(--tickL) var(--tickT), var(--tickT) var(--tickL),
+    var(--tickL) var(--tickT), var(--tickT) var(--tickL),
+    var(--tickL) var(--tickT), var(--tickT) var(--tickL),
+    var(--tickL) var(--tickT), var(--tickT) var(--tickL);
+  background-position: left top, left top, right top, right top, left bottom,
+    left bottom, right bottom, right bottom;
+}
+
+.bloom {
+  /* The part that only arrives as the camera closes in: the screen stops
+     being a distant rectangle and starts lighting the space around it. */
+  inset: 0;
+  border-radius: 2px;
+  box-shadow:
+    0 0 40px rgba(var(--ps-accent), 0.3),
+    0 0 150px rgba(var(--ps-accent), 0.18);
+  opacity: var(--ps-near);
+}
+
+.station[data-distant] .bloom {
+  /* A distant world is never near enough to be the one being looked at, so
+     its own light comes up with its surfacing instead: a faint glow round
+     the edge of a shape standing in the dark. */
+  opacity: calc(var(--ps-res) * 0.7);
+}
+
+/* ---- title ---- */
+
+.label {
+  /* Sits just off the panel's corner, out in space with it, and turns with
+     it. Only legible once this screen is the one being looked at. */
+  position: absolute;
+  left: 1px;
+  top: calc(100% + 20px);
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  white-space: nowrap;
+  opacity: var(--ps-near);
+}
+
+.station[data-side="left"] .label {
+  /* Screen on the left of frame: hang the title off its right-hand corner,
+     the side that stays in shot longest as it slides away. */
+  left: auto;
+  right: 1px;
+  flex-direction: row-reverse;
+}
+
+.station[data-side="left"] .rule {
+  background: linear-gradient(
+    90deg,
+    rgba(var(--ps-accent), 0.9),
+    rgba(var(--ps-accent), 0)
+  );
+}
+
+.rule {
+  width: 44px;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    rgba(var(--ps-accent), 0),
+    rgba(var(--ps-accent), 0.9)
+  );
+}
+
+.title {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 19px;
+  font-weight: 500;
+  letter-spacing: 0.44em;
+  text-transform: uppercase;
+  color: rgba(244, 230, 211, 0.92);
+  text-shadow: 0 0 20px rgba(var(--ps-accent), 0.55);
+}
+
+/* ---- a distant world's entrance ---- */
+
+.station[data-intro] .panel {
+  /* Opens out of the flare's own line: a slit of light across the screen's
+     middle, widening to its full width, then tearing open top and bottom.
+     Past the edges by the reach of the bloom once fully open, so its glow
+     is never cut off -- and gone altogether once the entrance is over. */
+  clip-path: inset(
+    calc(50% - 2px - var(--ps-slit-y) * (50% + 218px))
+      calc(50% - var(--ps-slit-x) * (50% + 220px))
+  );
+}
+
+.rays,
+.flash,
+.glint {
+  position: absolute;
+  pointer-events: none;
+  display: none;
+}
+
+.station[data-intro] :is(.rays, .flash, .glint) {
+  display: block;
+}
+
+.rays {
+  /* God-rays from behind the screen: soft, uneven shafts of its own light,
+     thinning out to nothing, turning slowly as they die away. */
+  left: 50%;
+  top: 50%;
+  width: 220%;
+  aspect-ratio: 1;
+  opacity: var(--ps-rays);
+  transform: translate(-50%, -50%) rotate(var(--ps-spin))
+    scale(var(--ps-rays-scale));
+  --beam: rgba(var(--ps-accent), 0.3);
+  --beam-dim: rgba(var(--ps-accent), 0.14);
+  background: conic-gradient(
+    transparent 0deg,
+    var(--beam) 6deg,
+    transparent 13deg 20deg,
+    var(--beam-dim) 25deg,
+    transparent 30deg 36deg,
+    var(--beam) 44deg,
+    transparent 52deg 60deg,
+    var(--beam-dim) 65deg,
+    transparent 70deg 77deg,
+    var(--beam) 85deg,
+    transparent 92deg 99deg,
+    var(--beam-dim) 104deg,
+    transparent 109deg 115deg,
+    var(--beam) 123deg,
+    transparent 131deg 141deg,
+    var(--beam) 147deg,
+    transparent 153deg 162deg,
+    var(--beam-dim) 168deg,
+    transparent 173deg 181deg,
+    var(--beam) 189deg,
+    transparent 197deg 205deg,
+    var(--beam-dim) 211deg,
+    transparent 216deg 223deg,
+    var(--beam) 230deg,
+    transparent 237deg 246deg,
+    var(--beam-dim) 252deg,
+    transparent 257deg 264deg,
+    var(--beam) 272deg,
+    transparent 280deg 289deg,
+    var(--beam-dim) 295deg,
+    transparent 300deg 309deg,
+    var(--beam) 318deg,
+    transparent 326deg 334deg,
+    var(--beam-dim) 341deg,
+    transparent 347deg
+  );
+  -webkit-mask-image: radial-gradient(
+    closest-side,
+    #000 10%,
+    rgba(0, 0, 0, 0.4) 34%,
+    rgba(0, 0, 0, 0.1) 62%,
+    transparent 88%
+  );
+  mask-image: radial-gradient(
+    closest-side,
+    #000 10%,
+    rgba(0, 0, 0, 0.4) 34%,
+    rgba(0, 0, 0, 0.1) 62%,
+    transparent 88%
+  );
+}
+
+.flash {
+  /* The white-out the screen opens in: over-exposed at its heart, burning
+     through its own colour toward the rim, falling back to the picture. */
+  inset: 0;
+  opacity: var(--ps-flash);
+  background: radial-gradient(
+    80% 100% at 50% 50%,
+    #fff,
+    rgba(255, 246, 232, 0.96) 42%,
+    rgba(var(--ps-accent), 0.82) 82%,
+    rgba(var(--ps-accent), 0.6)
+  );
+}
+
+.glint {
+  /* One pass of light across the glass, left to right. */
+  inset: 0;
+  background: linear-gradient(
+    104deg,
+    transparent 36%,
+    rgba(255, 255, 255, 0.08) 44%,
+    rgba(255, 255, 255, 0.5) 50%,
+    rgba(var(--ps-accent), 0.24) 53%,
+    transparent 60%
+  );
+  transform: translateX(calc((var(--ps-glint) * 2 - 1) * 110%));
+}
+
+/* ---- title card ---- */
+
+.card {
+  /* The world's name, as a credit: flat to the lens and over the picture.
+     Placed with its top-centre under the screen (JS), so it grows from
+     there as it tracks in. */
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.9em;
+  font-size: var(--ps-card-size, 22px);
+  white-space: nowrap;
+  visibility: hidden;
+  opacity: 0;
+  transform-origin: 50% 0;
+  will-change: transform, opacity;
+  --ps-accent: 255, 198, 146;
+}
+
+.cardRule {
+  /* Draws outward from the name on either side. */
+  width: 2.6em;
+  height: 1px;
+  transform: scaleX(var(--ps-rule));
+  transform-origin: 100% 50%;
+  background: linear-gradient(
+    90deg,
+    rgba(var(--ps-accent), 0),
+    rgba(var(--ps-accent), 0.9)
+  );
+}
+
+.cardRule[data-end="trail"] {
+  transform-origin: 0 50%;
+  background: linear-gradient(
+    90deg,
+    rgba(var(--ps-accent), 0.9),
+    rgba(var(--ps-accent), 0)
+  );
+}
+
+.cardTitle {
+  position: relative;
+  display: block;
+}
+
+.cardLetters,
+.cardSheen {
+  display: block;
+  font-family: var(--font-geist-mono), monospace;
+  font-weight: 500;
+  line-height: 1.2;
+  text-transform: uppercase;
+  /* Tracks in from wide to the site's own title spacing. The padding
+     matches the space after the last letter, so the name stays centred
+     while it does. */
+  letter-spacing: calc(var(--ps-track) * 1em);
+  padding-left: calc(var(--ps-track) * 1em);
+}
+
+.cardLetters {
+  color: rgba(244, 230, 211, 0.95);
+  text-shadow: 0 0 0.9em rgba(var(--ps-accent), 0.55);
+}
+
+.letter {
+  display: inline-block;
+}
+
+.card[data-intro] .letter {
+  /* One letter igniting after another: each lands out of a white-hot blur
+     a little larger than it will be, and cools into place. --n and --i
+     are the title's length and this letter's place in it. */
+  --a: clamp(0, calc((var(--ps-type) * (var(--n) + 4) - var(--i)) / 4), 1);
+  opacity: var(--a);
+  transform: translateY(calc((1 - var(--a)) * 0.25em))
+    scale(calc(1.45 - var(--a) * 0.45));
+  filter: blur(calc((1 - var(--a)) * 0.3em));
+  text-shadow:
+    0 0 0.9em rgba(var(--ps-accent), 0.55),
+    0 0 calc(0.2em + (1 - var(--a)) * 0.8em)
+      rgba(255, 255, 255, calc((1 - var(--a)) * 0.9));
+}
+
+.cardSheen {
+  /* The name again, drawn only as the band of light passing through it. */
+  position: absolute;
+  inset: 0;
+  display: none;
+  color: transparent;
+  background: linear-gradient(
+      100deg,
+      transparent 40%,
+      rgba(255, 255, 255, 0.95) 50%,
+      transparent 60%
+    )
+    calc((1 - var(--ps-sheen)) * 100%) 0 / 300% 100% no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+.card[data-intro] .cardSheen {
+  display: block;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@keyframes scanDrift {
+  to {
+    /* Exactly one period, so the loop has no seam. */
+    transform: translateY(6px);
+  }
+}
+
+@keyframes sheenSweep {
+  0%,
+  100% {
+    transform: translateX(-36%);
+  }
+  50% {
+    transform: translateX(36%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The journey itself does not run under reduced motion, so these screens
+     are never shown -- but nothing here should be animating regardless. */
+  .scan,
+  .sheen {
+    animation: none;
+  }
+}
