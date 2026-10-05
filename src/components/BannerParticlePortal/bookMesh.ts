@@ -42,8 +42,10 @@ export const YP = 0.5 - SQ;
  *  (occlusion, how much page light it catches, how thin it is), and where
  *  it is on the written pages, if it is on one (bookSpread; x -1 if not):
  *  x and y on the map, which way the map runs across it, and whether it is
- *  the leaf being turned (which casts the shadow, and so takes none). */
-export const STRIDE = 21;
+ *  the leaf being turned (which casts the shadow, and so takes none). Last,
+ *  where it is on the parchment the book becomes, if it is on that
+ *  (contactPage; x -1 if not), and a spare. */
+export const STRIDE = 24;
 
 /** The written pages' map holds this many pages side by side (bookSpread). */
 export const INK_PAGES = 3;
@@ -91,8 +93,13 @@ export type PartKey =
   | "cap"
   | "paper"
   | "head"
-  | "fore";
+  | "fore"
+  | "sheet"
+  | "sheetBack";
 
+/** The parts, in the order they are drawn. The last two are the parchment
+ *  the book becomes (parchmentScroll), its written face and its back: empty
+ *  until then. */
 export const PART_KEYS: PartKey[] = [
   "cover",
   "inner",
@@ -103,6 +110,8 @@ export const PART_KEYS: PartKey[] = [
   "paper",
   "head",
   "fore",
+  "sheet",
+  "sheetBack",
 ];
 
 /** One material's triangles, rebuilt in place whenever the book moves. */
@@ -138,7 +147,9 @@ export class Part {
     pgx = -1,
     pgy = -1,
     pgd = 0,
-    cast = 0
+    cast = 0,
+    scx = -1,
+    scy = -1
   ) {
     if ((this.nv + 1) * STRIDE > this.v.length) {
       const n = new Float32Array(this.v.length * 2);
@@ -168,6 +179,9 @@ export class Part {
     a[o + 18] = pgy;
     a[o + 19] = pgd;
     a[o + 20] = cast;
+    a[o + 21] = scx;
+    a[o + 22] = scy;
+    a[o + 23] = 0;
     return this.nv++;
   }
 

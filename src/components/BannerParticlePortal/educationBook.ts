@@ -62,8 +62,9 @@ const TAKEN_SMALL = 48;
 const REPAINT_AT = 0.12;
 
 /** Where the seed is looked for (fractions of the frame), and where the
- *  book comes to rest. */
-const SEED_AT = [0.5, 0.16] as const;
+ *  book comes to rest. The guide (see guideParticle) ends its journey at
+ *  the seed's place, and is handed over to be it. */
+export const SEED_AT = [0.5, 0.16] as const;
 const REST_AT = [0.5, 0.5] as const;
 
 /** How far the universe behind is dimmed once the book is there. It is
@@ -181,6 +182,12 @@ export type EduBook = {
    *  back -- and re-taken from a rebuilt world. */
   cued: boolean;
   taken: number[];
+  /** The guide, if it is resting where the seed is looked for: when the
+   *  book begins, that is the seed -- already lit, since it has been all
+   *  along. Null, and the seed is found in the medium as it always was. */
+  handoff: { x: number; y: number; a: number; r: number } | null;
+  /** The seed came lit (the guide), rather than gathering itself. */
+  seedLit: boolean;
   seed: number;
   seedX: number;
   seedY: number;
@@ -214,6 +221,8 @@ export function createEduBook(): EduBook {
     pal: [],
     cued: false,
     taken: [],
+    handoff: null,
+    seedLit: false,
     seed: -1,
     seedX: 0,
     seedY: 0,
@@ -375,7 +384,16 @@ function cue(b: EduBook, w: JourneyWorld, art: BookArt, focal: number, time: num
     }
   }
   b.taken = [];
-  if (best >= 0 && bestScore > 0.02) {
+  b.seedLit = false;
+  if (b.handoff) {
+    // The guide, which led the camera here: it is the seed.
+    b.seed = -1;
+    b.seedX = b.handoff.x;
+    b.seedY = b.handoff.y;
+    b.seedA = b.handoff.a;
+    b.seedR = b.handoff.r;
+    b.seedLit = true;
+  } else if (best >= 0 && bestScore > 0.02) {
     const m = seen[best];
     b.seed = m.i;
     b.seedX = m.x;
@@ -936,7 +954,8 @@ export function drawEduBook(
   }
 
   /* --- the seed, over all of it until it sinks into the cover --- */
-  const ignite = smoothstep(0, 0.12, e);
+  // (The guide comes already lit: it has been this light the whole way.)
+  const ignite = b.seedLit ? 1 : smoothstep(0, 0.12, e);
   const sink = smoothstep(0.62, 0.8, e);
   const sa = lerp(liveA, 1, ignite) * (1 - sink);
   if (sa > 0.012) {

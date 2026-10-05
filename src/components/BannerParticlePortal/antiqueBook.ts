@@ -1660,6 +1660,55 @@ function shadePaper(u: number, v: number) {
   occl = 1;
 }
 
+/** The parchment the book's leaves are pressed into once the bird has it
+ *  (bookFinale): the same laid paper, a shade warmer and more mottled, toned
+ *  in from all four edges now, cockled the way old skin cockles, and creased
+ *  faintly down the middle where the spine was. u across it from the left,
+ *  v up from the tail, in book heights; `w` is how wide it is. */
+function shadeParchment(u: number, v: number, w: number) {
+  const ph = 1 - 2 * SQ;
+  setAlbedo(LEAF[0] * 1.02, LEAF[1] * 0.985, LEAF[2] * 0.92);
+  specK = 0.04;
+  specPow = 8;
+  sheenK = 0.025;
+  metal = 0;
+  let k = 0.95 + 0.06 * fbm2(u * 7 + 13, v * 7 - 4);
+  k *= 1 - 0.012 * (0.5 + 0.5 * Math.cos(v * 590));
+  const cu = ((u + 0.011) % 0.056) - 0.028;
+  k *= 1 - 0.03 * groove(cu, 0.0016);
+  // The crease, darker for the dirt that has worked into it.
+  const c = u - w / 2;
+  k *= 1 - 0.07 * groove(c, 0.01);
+  aR *= k;
+  aG *= k;
+  aB *= k;
+  // Toning, in from every edge.
+  const edge =
+    Math.min(u, w - u, v, ph - v) + 0.014 * vn(u * 14 + 3, v * 14);
+  const toned =
+    smoothstep(0.09, 0, edge) * 0.34 +
+    0.09 * (0.5 + 0.5 * fbm2(u * 1.8 + 8, v * 1.8));
+  aR *= 1 - toned * 0.55;
+  aG *= 1 - toned * 0.8;
+  aB *= 1 - toned * 1.2;
+  const drift = smoothstep(0.05, 0.55, fbm2(u * 2.4 - 5, v * 2.4 + 1));
+  mixAlbedo(
+    FOX,
+    smoothstep(0.62, 0.8, vn(u * 46 + 2, v * 46 - 7)) * drift * 0.36
+  );
+  // Cockling, the crease, and the fibre.
+  vnD(u * 3.1 + 2, v * 3.1 - 6);
+  let du = 0.04 * vdx;
+  let dv = 0.04 * vdy;
+  du += (2 * 0.0016 * c) / (0.01 * 0.01) * Math.exp(-((c / 0.01) ** 2));
+  vnD(u * 260 + 7, v * 260 - 3);
+  du += vdx * 260 * 0.00005;
+  dv += vdy * 260 * 0.00005;
+  bDu = du;
+  bDv = dv;
+  occl = 1;
+}
+
 /** Marbled endpaper, dark with age: small pools of faded indigo, oxblood
  *  and ochre, finely combed through with paler veins. */
 const MARBLE = [
@@ -1913,4 +1962,56 @@ export function createBookBake(bookPx: number, res: number): BookBake {
   };
 
   return { step, result: () => done, bookPx };
+}
+
+/** A bake of the one parchment map. */
+export type ParchBake = {
+  /** Bakes for about `budgetMs`; true once it is done. */
+  step: (budgetMs: number) => boolean;
+  result: () => BookMap | null;
+  bookPx: number;
+};
+
+/**
+ * Bakes the parchment the book becomes (shadeParchment), `widthUnits` book
+ * heights wide, at the same density as the leaves it is made of -- sliced
+ * like the rest, for a worker or idle time.
+ */
+export function createParchBake(
+  bookPx: number,
+  res: number,
+  widthUnits: number
+): ParchBake {
+  const R = Math.round(clamp(bookPx * res * 1.3, 360, 1100));
+  const fine = fineFor(bookPx, res);
+  const ph = 1 - 2 * SQ;
+  const w = Math.max(8, Math.round(widthUnits * R * 0.75));
+  const h = Math.max(8, Math.round(ph * R * 0.75));
+  const map: BookMap = {
+    w,
+    h,
+    a: new Uint8Array(w * h * 4),
+    b: new Uint8Array(w * h * 4),
+    c: new Uint8Array(w * h * 2),
+  };
+  let row = 0;
+  const step = (budgetMs: number) => {
+    if (row >= h) return true;
+    const until = performance.now() + budgetMs;
+    grainFine = fine;
+    while (row < h) {
+      const t = (row + 0.5) / h;
+      for (let i = 0; i < w; i++) {
+        bDu = 0;
+        bDv = 0;
+        occl = 1;
+        shadeParchment(((i + 0.5) / w) * widthUnits, t * ph, widthUnits);
+        writeTexel(map, row * w + i);
+      }
+      row++;
+      if (performance.now() > until) break;
+    }
+    return row >= h;
+  };
+  return { step, result: () => (row >= h ? map : null), bookPx };
 }

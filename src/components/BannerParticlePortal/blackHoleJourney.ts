@@ -46,9 +46,9 @@ const CAM_POW = 2.3;
 const DEEP_TRAVEL = 5.5;
 /** Peak height above the disc plane mid-approach, in UNIT -- the camera
  *  rises over the disc, then settles back down through it on arrival. */
-const SWOOP_Y = 3.2;
+const SWOOP_Y = 1.7;
 /** Matching lateral drift, so the approach reads as flown, not railed. */
-const SWAY_X = 1.6;
+const SWAY_X = 0.95;
 /** Journey-progress lookback used to derive motion streaks. */
 const STREAK_DT = 0.0014;
 
@@ -96,6 +96,8 @@ function glide(t: number) {
   const s = clamp((t - 1 - DEEP_SPAN) / SETTLE_SPAN, 0, 1);
   return (SETTLE_SPAN * (1 - (1 - s) ** 3)) / 3;
 }
+/** Journey-t at which the camera has come fully to rest, at the bottom. */
+export const T_REST = 1 + DEEP_SPAN + SETTLE_SPAN;
 
 /* ------------------------------------------------------------------ *
  * Black hole geometry (all in UNIT)
@@ -801,13 +803,17 @@ function pathLateral(
   bhY: number,
   t: number
 ) {
-  const s = clamp(t / CROSS_T, 0, 1);
-  // Alignment, swoop and sway are all exactly zero at t = 0 and the swoop
-  // returns to zero right as the horizon is reached, so the camera arrives
-  // dead on axis, in the disc's own plane.
-  const align = smoothstep(0.04, 0.9, t);
-  const swoop = -SWOOP_Y * unit * Math.sin(Math.PI * Math.pow(s, 1.6));
-  const sway = SWAY_X * unit * Math.sin(Math.PI * Math.pow(s, 1.25));
+  // Shaped in *depth* -- sd is the share of the way to the horizon the
+  // camera has covered -- because the camera is flown now, on a clock, not
+  // scrubbed: a path that is gentle in t but steep in depth (as t^1.25 is at
+  // the start, when the fall is t^2.3) makes a flown camera lurch sideways
+  // the moment it sets off. Every term here is flat, in value and slope, at
+  // both ends: it leaves the galaxy straight ahead and arrives dead on axis,
+  // in the disc's own plane.
+  const sd = Math.pow(clamp(t / CROSS_T, 0, 1), CAM_POW);
+  const align = smoothstep(0, 1, sd);
+  const swoop = -SWOOP_Y * unit * Math.sin(Math.PI * Math.pow(sd, 0.8)) ** 2;
+  const sway = SWAY_X * unit * Math.sin(Math.PI * Math.pow(sd, 0.7)) ** 2;
   out.x = bhX * align + sway;
   out.y = bhY * align + swoop;
   if (t > 1) {
@@ -836,13 +842,23 @@ function pathLateral(
  */
 export function tAtDepth(targetZ: number, bhZ: number, unit: number) {
   let lo = 0;
-  let hi = 1 + DEEP_SPAN;
+  let hi = T_REST;
   for (let i = 0; i < 40; i++) {
     const mid = (lo + hi) / 2;
     if (camZAt(mid, bhZ, unit) < targetZ) lo = mid;
     else hi = mid;
   }
   return (lo + hi) / 2;
+}
+
+/** Where the camera's path runs at a given depth (world px): its lateral
+ *  position there. What something leading the camera along it follows. */
+export function pathAtDepth(
+  out: { x: number; y: number },
+  w: JourneyWorld,
+  z: number
+) {
+  pathLateral(out, w.unit, w.bhX, w.bhY, tAtDepth(z, w.bhZ, w.unit));
 }
 
 const PATH = { x: 0, y: 0 };
@@ -944,9 +960,37 @@ function project(
 
 type Ctx = CanvasRenderingContext2D;
 
+/** One additive glow blit, of a mote out there in the field -- so disturbed
+ *  by the guide's wake when it is near (see wakeAt). */
+function blit(
+  ctx: Ctx,
+  sprite: HTMLCanvasElement,
+  x: number,
+  y: number,
+  px: number,
+  py: number,
+  rad: number,
+  alpha: number
+) {
+  if (wake.r2 > 0 && wakeAt(x, y)) {
+    blitRaw(
+      ctx,
+      sprite,
+      x + WS[0],
+      y + WS[1],
+      px + WS[0],
+      py + WS[1],
+      rad,
+      alpha * (1 + WS[2])
+    );
+    return;
+  }
+  blitRaw(ctx, sprite, x, y, px, py, rad, alpha);
+}
+
 /** One additive glow blit -- stretched along its own motion when the camera
  *  is moving fast enough for the displacement to read as a streak. */
-function blit(
+function blitRaw(
   ctx: Ctx,
   sprite: HTMLCanvasElement,
   x: number,
@@ -1032,6 +1076,86 @@ export function setJourneyDolly(z: number) {
   dollyZ = z;
 }
 
+/* ---- the guide's wake ---- */
+
+/**
+ * Something moving through the field disturbs what is near it: motes within
+ * `r` px of (x, y) on screen are parted from it by up to `push` px (drawn in
+ * toward it when negative), turned about it by up to `swirl` px, and lit by
+ * up to `glow` of their own brightness. A pure function of where the mover
+ * is this frame -- nothing is remembered -- so as it goes on, what it passed
+ * settles back of its own accord. Off (`r` = 0) unless something sets it.
+ */
+const wake = { x: 0, y: 0, r: 0, r2: 0, core: 1, push: 0, swirl: 0, glow: 0 };
+
+export function setJourneyWake(
+  x: number,
+  y: number,
+  r: number,
+  push: number,
+  swirl: number,
+  glow: number
+) {
+  wake.x = x;
+  wake.y = y;
+  wake.r = r;
+  wake.r2 = r * r;
+  wake.core = Math.max(1, r * 0.16);
+  wake.push = push;
+  wake.swirl = swirl;
+  wake.glow = glow;
+}
+
+export function clearJourneyWake() {
+  wake.r = 0;
+  wake.r2 = 0;
+}
+
+// [dx, dy, brightness gain] for the point last asked about.
+const WS = new Float64Array(3);
+
+/** The wake at one point on screen, into WS. False when there is none. */
+function wakeAt(x: number, y: number) {
+  if (wake.r2 <= 0) return false;
+  const dx = x - wake.x;
+  const dy = y - wake.y;
+  const r2 = dx * dx + dy * dy;
+  if (r2 >= wake.r2) return false;
+  const r = Math.sqrt(r2);
+  // Flat at the edge of its reach, so nothing is seen to cross into it;
+  // and eased off at the very middle, where "away from it" has no direction.
+  const q = 1 - r2 / wake.r2;
+  const f = q * q;
+  const ux = r > 1e-3 ? dx / r : 0;
+  const uy = r > 1e-3 ? dy / r : 0;
+  const push = wake.push * f * Math.min(1, r / wake.core);
+  const swirl = wake.swirl * f * Math.min(1, r / wake.core);
+  WS[0] = ux * push - uy * swirl;
+  WS[1] = uy * push + ux * swirl;
+  WS[2] = wake.glow * f;
+  return true;
+}
+
+/** One galaxy particle something else has taken out of the field and is now
+ *  drawing itself -- the guide, once it has come loose. Null otherwise, and
+ *  the galaxy draws exactly as it always has. */
+let claimedGalaxy: GalaxyParticle | null = null;
+
+export function setGalaxyClaim(p: GalaxyParticle | null) {
+  claimedGalaxy = p;
+}
+
+/** How a frame is being flown, when something other than the scroll is
+ *  flying it. */
+export type JourneyMotion = {
+  /** Journey-t the camera was at one shutter-interval ago -- the motion
+   *  streaks are drawn from it, so they are as long as the camera is fast
+   *  and gone the moment it is still. */
+  prevT: number;
+  /** How much of what the journey adds to the galaxy there is yet, 0..1. */
+  presence: number;
+};
+
 export function renderJourney(
   ctx: Ctx,
   w: JourneyWorld,
@@ -1040,12 +1164,18 @@ export function renderJourney(
   time: number,
   cssW: number,
   cssH: number,
-  focal: number
+  focal: number,
+  motion?: JourneyMotion
 ) {
   ctx.clearRect(0, 0, cssW, cssH);
 
   fillCam(camNow, w, focal, t);
-  fillCam(camPrev, w, focal, Math.max(0, t - STREAK_DT));
+  fillCam(
+    camPrev,
+    w,
+    focal,
+    motion ? motion.prevT : Math.max(0, t - STREAK_DT)
+  );
   // Only ever nonzero while the Education book opens: the camera goes in
   // toward it, slowly enough that nothing streaks.
   camNow.z += dollyZ;
@@ -1054,7 +1184,7 @@ export function renderJourney(
   // Everything this module adds fades up from literally nothing across the
   // first sliver of the journey, which is what makes the handoff from the
   // 2D galaxy render a frame-for-frame match at t = 0.
-  const presence = smoothstep(0, 0.08, t);
+  const presence = motion ? motion.presence : smoothstep(0, 0.08, t);
   const sprites = w.bank.sprites;
   const unit = w.unit;
 
@@ -1172,6 +1302,8 @@ function drawGalaxy(
   const limX = w.cx * 2;
   const limY = w.cy * 2;
   for (const p of galaxy) {
+    // Come loose: whatever took it draws it now.
+    if (p === claimedGalaxy) continue;
     // Exactly the position the 2D render settles on at full progress: the
     // portal target plus its idle orbit, at travel weight 1.
     const ia = time * p.idleSpeed + p.idlePhase;
@@ -1202,17 +1334,25 @@ function drawGalaxy(
       0.82 + 0.18 * Math.sin(time * p.idleSpeed * 2.3 + p.idlePhase * 1.7);
     const dotR =
       p.dotRadius * p.portalDepthScale * twinkle * Math.pow(sizeK, 0.62);
-    const alpha = p.portalDepthAlpha * near * Math.pow(sizeK, -0.45);
+    let alpha = p.portalDepthAlpha * near * Math.pow(sizeK, -0.45);
     if (alpha <= MIN_ALPHA) continue;
 
-    const x = PR[0];
-    const y = PR[1];
+    let x = PR[0];
+    let y = PR[1];
     const pad = dotR * 3;
     if (x < -pad || y < -pad || x > limX + pad || y > limY + pad) continue;
 
     project(PR2, camPrev, w, focal, wx, wy, p.zWorld);
-    const px = PR2[4] ? PR2[0] : x;
-    const py = PR2[4] ? PR2[1] : y;
+    let px = PR2[4] ? PR2[0] : x;
+    let py = PR2[4] ? PR2[1] : y;
+    // Disturbed by the guide going by -- moved as one, streak and all.
+    if (wakeAt(x, y)) {
+      x += WS[0];
+      y += WS[1];
+      px += WS[0];
+      py += WS[1];
+      alpha *= 1 + WS[2];
+    }
     const sdx = x - px;
     const sdy = y - py;
     const len = Math.hypot(sdx, sdy);
@@ -1914,6 +2054,32 @@ export function blitGlow(
   alpha: number
 ) {
   blit(ctx, sprite, x, y, px, py, rad, alpha);
+}
+
+/** The same blit, for the one thing the wake belongs to: it does not part
+ *  around itself. */
+export function blitGlowRaw(
+  ctx: Ctx,
+  sprite: HTMLCanvasElement,
+  x: number,
+  y: number,
+  px: number,
+  py: number,
+  rad: number,
+  alpha: number
+) {
+  blitRaw(ctx, sprite, x, y, px, py, rad, alpha);
+}
+
+/** The galaxy's own three-ring glow, exactly as drawGalaxy draws a mote. */
+export function drawGalaxyGlow(
+  ctx: Ctx,
+  x: number,
+  y: number,
+  r: number,
+  a: number
+) {
+  drawTriGlow(ctx, x, y, r, a);
 }
 
 export { SPRITE_SPREAD, NEAR_CLIP, BG as SPACE_BG };

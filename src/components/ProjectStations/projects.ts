@@ -5,10 +5,12 @@
  * world seen along the existing camera journey (galaxy -> gateway -> black
  * hole -> deeper): a screen so far beyond everything else that the camera
  * never nears it -- it hangs in its own part of the sky, the size it is,
- * while the camera travels on (see `distant`). The first is seen on the way
- * to the hole, the other four inside it.
+ * while the camera travels on (see `distant`). All five are inside the
+ * hole: the guide leads the camera in first, then on from one to the next.
  *
- * Every world runs on the same overlapping stretches of the journey:
+ * The camera comes to rest at each one -- HOLDS, below, are the stops the
+ * journey director flies it between (see journeyDirector) -- and every
+ * world runs on the same overlapping stretches of the flight to it:
  *
  *   fadeIn    the light it gives off, climbing out of nothing over a long
  *             stretch -- something is out there before anything is seen;
@@ -128,20 +130,30 @@ export type ProjectStationDef = {
   };
 };
 
-/** Depth of the first world, in UNIT: far enough beyond the hole that the
- *  whole flight to it changes how large the world reads by only about a
- *  sixth, and moves it by only a few pixels of parallax. */
-const WORLD_01_Z = HORIZON_Z + 140;
 /** How far beyond the camera each world inside the hole stands once it has
  *  surfaced, in UNIT -- far enough that the rest of its time in view changes
  *  how large it reads by under a tenth: it never grows toward the camera. */
 const INSIDE_BEYOND = 150;
-/** Where the camera is along the journey once each world inside the hole
- *  has fully surfaced, in UNIT past the horizon. The fall ends 31.5 past. */
-const HOLD_02 = 8.6;
-const HOLD_03 = 14.8;
-const HOLD_04 = 21.8;
+/** Where the camera comes to rest in front of each world, in UNIT past the
+ *  horizon -- evenly apart, so every stretch of the flight between two of
+ *  them is the same length of travel. The fall ends 31.5 past. */
+const HOLD_01 = 4.2;
+const HOLD_02 = 10.2;
+const HOLD_03 = 16.2;
+const HOLD_04 = 22.2;
 const HOLD_05 = 28.1;
+/** The stops, in order, for the director that flies the camera to them. */
+export const HOLDS = [HOLD_01, HOLD_02, HOLD_03, HOLD_04, HOLD_05] as const;
+/** How far into the flight from the stop before it (0..1 of the distance)
+ *  each world's entrance is cued: late enough that it is met as the camera
+ *  is coming to rest in front of it, not while it is still rushing past. */
+const CUE_AT = 0.6;
+/** Camera depth (UNIT past the horizon) `k` of the way from one stop on to
+ *  the next. */
+function between(from: number, to: number, k: number) {
+  return HORIZON_Z + from + (to - from) * k;
+}
+const WORLD_01_Z = HORIZON_Z + HOLD_01 + INSIDE_BEYOND;
 const WORLD_02_Z = HORIZON_Z + HOLD_02 + INSIDE_BEYOND;
 const WORLD_03_Z = HORIZON_Z + HOLD_03 + INSIDE_BEYOND;
 const WORLD_04_Z = HORIZON_Z + HOLD_04 + INSIDE_BEYOND;
@@ -158,11 +170,10 @@ function seen(worldZ: number, from: number, to: number) {
 
 export const PROJECTS: readonly ProjectStationDef[] = [
   {
-    // The first world: distant, high in the upper right of the sky, well
-    // clear of the hole. It is out there, faint, from the journey's first
-    // frame; it surfaces as the camera clears the galaxy's dust; and then
-    // it simply stays where it is while the camera carries on toward the
-    // hole, fading away as the hole grows.
+    // The first world: the first thing on the other side of the horizon,
+    // high in the upper right. Its light surfaces out of the crossing's own
+    // haze as the camera follows the guide through, and it makes its
+    // entrance as the camera comes to rest in front of it.
     id: "project-01",
     title: "Project 01",
     accent: "255, 198, 146",
@@ -173,33 +184,30 @@ export const PROJECTS: readonly ProjectStationDef[] = [
     offY: -1,
     width: 0.98,
     yaw: -6,
-    // Its light is already out there before the journey starts, its shape
-    // shows from about 3 UNIT into the flight, and it has fully surfaced by
-    // about 9 -- the whole way out of the galaxy, rather than any one short
-    // stretch of it.
-    fadeIn: seen(WORLD_01_Z, -2.3, 9),
-    resolve: seen(WORLD_01_Z, 3, 7.8),
+    fadeIn: seen(WORLD_01_Z, HORIZON_Z - 1, HORIZON_Z + HOLD_01),
+    resolve: seen(
+      WORLD_01_Z,
+      between(0, HOLD_01, CUE_AT),
+      HORIZON_Z + HOLD_01 - 0.4
+    ),
     fadeOut: null,
-    // Starts fading 20 UNIT out from the hole (about 12 into the flight)
-    // and is gone by 7, where the hole reads nearly three times as large
-    // and its lens has not yet started moving it.
     distant: {
       frame: [0.69, 0.25],
       scale: 0.46,
       clarity: 0.62,
-      lost: seen(WORLD_01_Z, HORIZON_Z - 20, HORIZON_Z - 7),
+      lost: seen(WORLD_01_Z, HORIZON_Z + HOLD_01 + 1.2, HORIZON_Z + HOLD_02),
     },
     // Never near enough for its cloud to show; every place has one.
     world: { spread: 3.2, ahead: 7, behind: 8.5, density: 1 },
   },
   /*
-   * The four worlds inside the hole are distant worlds exactly as the first
-   * is: the same size, softness and fade, each hanging in its own part of
-   * the sky. Each surfaces while the one before is still holding, so the
-   * next is always already forming as the last thins away.
+   * The other four are distant worlds exactly as the first is: the same
+   * size, softness and fade, each hanging in its own part of the sky. Each
+   * one's light rises as the camera leaves the one before, and the one
+   * before thins away as the camera goes on to it.
    */
   {
-    // Surfaces out of the crossing's own haze, upper left.
+    // Upper left.
     id: "project-02",
     title: "Project 02",
     accent: "255, 176, 118",
@@ -210,14 +218,18 @@ export const PROJECTS: readonly ProjectStationDef[] = [
     offY: -1,
     width: 0.98,
     yaw: 6,
-    fadeIn: seen(WORLD_02_Z, HORIZON_Z, HORIZON_Z + HOLD_02),
-    resolve: seen(WORLD_02_Z, HORIZON_Z + 3.5, HORIZON_Z + 7.5),
+    fadeIn: seen(WORLD_02_Z, HORIZON_Z + HOLD_01 + 0.6, HORIZON_Z + HOLD_02),
+    resolve: seen(
+      WORLD_02_Z,
+      between(HOLD_01, HOLD_02, CUE_AT),
+      HORIZON_Z + HOLD_02 - 0.4
+    ),
     fadeOut: null,
     distant: {
       frame: [0.31, 0.28],
       scale: 0.46,
       clarity: 0.62,
-      lost: seen(WORLD_02_Z, HORIZON_Z + 9.8, HORIZON_Z + 14.8),
+      lost: seen(WORLD_02_Z, HORIZON_Z + HOLD_02 + 1.2, HORIZON_Z + HOLD_03),
     },
     world: { spread: 3.6, ahead: 8, behind: 9, density: 1.1 },
   },
@@ -233,14 +245,18 @@ export const PROJECTS: readonly ProjectStationDef[] = [
     offY: 1,
     width: 0.98,
     yaw: -6,
-    fadeIn: seen(WORLD_03_Z, HORIZON_Z + 9.2, HORIZON_Z + HOLD_03),
-    resolve: seen(WORLD_03_Z, HORIZON_Z + 10.8, HORIZON_Z + 14.4),
+    fadeIn: seen(WORLD_03_Z, HORIZON_Z + HOLD_02 + 0.6, HORIZON_Z + HOLD_03),
+    resolve: seen(
+      WORLD_03_Z,
+      between(HOLD_02, HOLD_03, CUE_AT),
+      HORIZON_Z + HOLD_03 - 0.4
+    ),
     fadeOut: null,
     distant: {
       frame: [0.69, 0.7],
       scale: 0.46,
       clarity: 0.62,
-      lost: seen(WORLD_03_Z, HORIZON_Z + 16.3, HORIZON_Z + 21.8),
+      lost: seen(WORLD_03_Z, HORIZON_Z + HOLD_03 + 1.2, HORIZON_Z + HOLD_04),
     },
     world: { spread: 2.8, ahead: 6.5, behind: 8, density: 0.9 },
   },
@@ -256,19 +272,24 @@ export const PROJECTS: readonly ProjectStationDef[] = [
     offY: 1,
     width: 0.98,
     yaw: 6,
-    fadeIn: seen(WORLD_04_Z, HORIZON_Z + 15.5, HORIZON_Z + HOLD_04),
-    resolve: seen(WORLD_04_Z, HORIZON_Z + 17.1, HORIZON_Z + 21.4),
+    fadeIn: seen(WORLD_04_Z, HORIZON_Z + HOLD_03 + 0.6, HORIZON_Z + HOLD_04),
+    resolve: seen(
+      WORLD_04_Z,
+      between(HOLD_03, HOLD_04, CUE_AT),
+      HORIZON_Z + HOLD_04 - 0.4
+    ),
     fadeOut: null,
     distant: {
       frame: [0.31, 0.7],
       scale: 0.46,
       clarity: 0.62,
-      lost: seen(WORLD_04_Z, HORIZON_Z + 23.4, HORIZON_Z + 28.1),
+      lost: seen(WORLD_04_Z, HORIZON_Z + HOLD_04 + 1.2, HORIZON_Z + HOLD_05),
     },
     world: { spread: 3.4, ahead: 7.5, behind: 9, density: 1.05 },
   },
   {
-    // Upper right, and gone just as the fall runs out of scroll.
+    // Upper right, and gone just before the camera comes to rest at the
+    // bottom of the fall, where the Education book is made.
     id: "project-05",
     title: "Project 05",
     accent: "176, 148, 228",
@@ -279,8 +300,12 @@ export const PROJECTS: readonly ProjectStationDef[] = [
     offY: -1,
     width: 0.98,
     yaw: -6,
-    fadeIn: seen(WORLD_05_Z, HORIZON_Z + 22.6, HORIZON_Z + HOLD_05),
-    resolve: seen(WORLD_05_Z, HORIZON_Z + 24.1, HORIZON_Z + 27.8),
+    fadeIn: seen(WORLD_05_Z, HORIZON_Z + HOLD_04 + 0.6, HORIZON_Z + HOLD_05),
+    resolve: seen(
+      WORLD_05_Z,
+      between(HOLD_04, HOLD_05, CUE_AT),
+      HORIZON_Z + HOLD_05 - 0.4
+    ),
     fadeOut: null,
     distant: {
       frame: [0.69, 0.28],

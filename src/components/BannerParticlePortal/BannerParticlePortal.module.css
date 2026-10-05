@@ -81,6 +81,28 @@
   outline-offset: 10px;
 }
 
+/* Over each address on the scroll's last page once it is written: what
+   follows it. Like the book's own hit area, it adds nothing to the picture
+   -- the ink is the thing to click. */
+.contactLink {
+  position: absolute;
+  display: none;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.contactLink:focus {
+  outline: none;
+}
+
+.contactLink:focus-visible {
+  outline: 1px solid rgba(140, 60, 40, 0.45);
+  outline-offset: 4px;
+}
+
 /* The book's first page, for screen readers: on screen it is only ever ink
    in the paper. */
 .srOnly {

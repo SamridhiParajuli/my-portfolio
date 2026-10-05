@@ -4,12 +4,31 @@ import { useEffect, useRef, type RefObject } from "react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import {
-  DEEP_SPAN,
   buildJourneyWorld,
+  clearJourneyWake,
+  makeCamera,
   renderJourney,
+  sampleCamera,
+  setGalaxyClaim,
   setJourneyDolly,
+  setJourneyWake,
   type JourneyWorld,
 } from "./blackHoleJourney";
+import {
+  attachDirector,
+  createDirector,
+  updateDirector,
+  type ScrollHooks,
+} from "./journeyDirector";
+import {
+  createGuide,
+  drawGuide,
+  guideHandoff,
+  guideWake,
+  layoutGuide,
+  resetGuide,
+  solveGuide,
+} from "./guideParticle";
 import {
   applyStationFrames,
   buildStations,
@@ -33,6 +52,7 @@ import {
 import {
   OPEN_DOLLY,
   bookHitRect,
+  contactLinks,
   createBookOpening,
   disposeBookOpening,
   drawBookOpeningBack,
@@ -47,6 +67,7 @@ import {
   tickBookOpening,
 } from "./bookOpening";
 import { PAGES } from "./bookSpread";
+import { CONTACT } from "./contactPage";
 import ProjectStations from "@/components/ProjectStations/ProjectStations";
 import styles from "./BannerParticlePortal.module.css";
 
@@ -81,39 +102,38 @@ const SPIRAL_STRENGTH = 3.0;
 // natural size) -- keeps the scrub distance proportional to viewport height
 // without needing a separate spacer element in the DOM.
 //
-// The pin is split into two legs that share one continuous scroll range and
-// one canvas. The first leg is the original banner -> galaxy transform, and
+// The pin is split into three legs that share one continuous scroll range
+// and one canvas. The first is the original banner -> galaxy transform, and
 // it still occupies exactly the 220% of scroll distance it always did -- so
 // every pixel of that sequence lands on the same scroll position as before.
-// The second leg is the camera journey through that same galaxy and into the
-// black hole; it only adds distance *after* the first leg has finished.
-// A third leg continues the fall deeper inside the hole, where four of the
-// five projects stand. It is pure addition: legs one and two keep the exact
-// scroll distances they always had, so every moment of the existing
-// sequence still lands on the same scroll position it did before -- this
-// only appends new distance past the point the journey used to end.
+// The second is the journey into the black hole and through the five worlds
+// inside it. It is not scrubbed: it is a row of stops the journey director
+// flies the camera between, one scroll each (see journeyDirector), and its
+// scroll distance is only what gives each stop a place on the page -- one
+// screen apiece, so the scrollbar still means something.
 const LEGACY_PERCENT = 220;
-const JOURNEY_PERCENT = 540;
-const DEEP_PERCENT = Math.round(JOURNEY_PERCENT * DEEP_SPAN);
-// A fourth leg, appended the same way: the Education section's opening,
-// where the universe the camera has come to rest in gathers itself into a
-// book (see educationBook). Every earlier moment keeps its scroll position.
+const STOP_PERCENT = 100;
+const STOP_COUNT = createDirector().stops.length;
+const GUIDE_PERCENT = STOP_PERCENT * (STOP_COUNT - 1);
+// The third: the Education section's opening, where the universe the camera
+// has come to rest in gathers itself into a book (see educationBook). This
+// one is scrubbed, as it always was.
 const EDU_PERCENT = 230;
-const TOTAL_PERCENT =
-  LEGACY_PERCENT + JOURNEY_PERCENT + DEEP_PERCENT + EDU_PERCENT;
+const TOTAL_PERCENT = LEGACY_PERCENT + GUIDE_PERCENT + EDU_PERCENT;
 const PIN_DISTANCE = `+=${TOTAL_PERCENT}%`;
-// Where the first leg ends within the combined trigger's 0..1 progress.
+// Where the first leg ends within the combined trigger's 0..1 progress --
+// which is the gateway, the journey's first stop.
 const LEGACY_SPAN = LEGACY_PERCENT / TOTAL_PERCENT;
-// ...and how much of it the second leg spans. Journey progress is still
-// measured in the second leg's own units, so it reads 1 at exactly the
-// frame it always did and simply carries on past it into the others.
-const JOURNEY_SPAN = JOURNEY_PERCENT / TOTAL_PERCENT;
-// Journey progress at which the fall runs out and the Education leg begins.
-const FALL_END = 1 + DEEP_SPAN;
-const JOURNEY_END = FALL_END + EDU_PERCENT / JOURNEY_PERCENT;
-// Within the Education leg, in journey units: a moment of stillness once
-// the camera is at rest, the stretch the book forms over, and after it the
+// ...how far apart the stops are...
+const STOP_SPAN = STOP_PERCENT / TOTAL_PERCENT;
+// ...and where the last of them is, and the Education leg begins.
+const EDU_START = (LEGACY_PERCENT + GUIDE_PERCENT) / TOTAL_PERCENT;
+// The Education leg is measured in the journey's old units -- the scroll
+// distance one unit of journey progress used to take -- so the book forms
+// over exactly the scroll it always did: a moment of stillness once the
+// camera is at rest, the stretch the book forms over, and after it the
 // rest of the leg, where the book simply floats.
+const EDU_T_PERCENT = 540;
 const EDU_LEAD = 0.02;
 const EDU_FORM = 0.31;
 // The book's own progress follows that scroll, but is never let run faster
@@ -126,8 +146,8 @@ const EDU_FOLLOW = 3.2;
 
 /** How far the scroll says the book should have formed, 0..1. */
 function eduTargetAt(rawProgress: number) {
-  const journeyT = (rawProgress - LEGACY_SPAN) / JOURNEY_SPAN;
-  return clamp((journeyT - FALL_END - EDU_LEAD) / EDU_FORM, 0, 1);
+  const eduT = ((rawProgress - EDU_START) * TOTAL_PERCENT) / EDU_T_PERCENT;
+  return clamp((eduT - EDU_LEAD) / EDU_FORM, 0, 1);
 }
 
 type Props = {
@@ -209,6 +229,9 @@ export default function BannerParticlePortal({ revealed, pinRef }: Props) {
   // opens it.
   const bookCanvasRef = useRef<HTMLCanvasElement>(null);
   const bookHitRef = useRef<HTMLButtonElement>(null);
+  // Over each address on the scroll's last page, once it has been written
+  // there: what follows it. Nothing to see -- the ink is the thing to click.
+  const contactLinkRefs = useRef<(HTMLAnchorElement | null)[]>([]);
   // The project screens' own DOM, filled in by ProjectStations. Written to
   // imperatively on the same frame loop as the canvas so the screens and
   // the universe around them can never disagree about where the camera is.
@@ -293,6 +316,11 @@ export default function BannerParticlePortal({ revealed, pinRef }: Props) {
     let eduE = 0;
     // ...and its opening, once it is clicked (see bookOpening).
     const opening = createBookOpening();
+    // What flies the camera past the galaxy, one scroll per stop, and the
+    // mote of the galaxy it follows there.
+    const director = createDirector();
+    const guide = createGuide();
+    const guideCam = makeCamera();
     let hitKey = "";
     const placeBookHit = (rect: [number, number, number, number] | null) => {
       const key = rect ? rect.map((v) => Math.round(v)).join(",") : "";
@@ -311,6 +339,29 @@ export default function BannerParticlePortal({ revealed, pinRef }: Props) {
       bookHit.style.width = `${Math.round(w)}px`;
       bookHit.style.height = `${Math.round(h)}px`;
       bookHit.tabIndex = 0;
+    };
+    const linkKeys = CONTACT.entries.map(() => "");
+    const placeContactLinks = (
+      rects: ReadonlyArray<[number, number, number, number] | null> | null
+    ) => {
+      contactLinkRefs.current.forEach((a, i) => {
+        if (!a) return;
+        const r = rects?.[i] ?? null;
+        const key = r ? r.map((v) => Math.round(v)).join(",") : "";
+        if (key === linkKeys[i]) return;
+        linkKeys[i] = key;
+        if (!r) {
+          a.style.display = "none";
+          a.tabIndex = -1;
+          return;
+        }
+        a.style.display = "block";
+        a.style.left = `${Math.round(r[0])}px`;
+        a.style.top = `${Math.round(r[1])}px`;
+        a.style.width = `${Math.round(r[2])}px`;
+        a.style.height = `${Math.round(r[3])}px`;
+        a.tabIndex = 0;
+      });
     };
     const onBookClick = () => {
       requestBookOpen(opening);
@@ -587,6 +638,17 @@ export default function BannerParticlePortal({ revealed, pinRef }: Props) {
         frames = makeFrames(stations.length);
       }
       setStationWidths(stationNodesRef.current, cardNodesRef.current, stations);
+      // The guide is one of these particles, and rests beside those worlds.
+      layoutGuide(
+        guide,
+        particles,
+        journey,
+        stations,
+        focal,
+        cssW,
+        cssH,
+        director.pos === 0
+      );
       // ...and so is the book, which is painted in idle time from here on,
       // long before the camera gets to where it is needed.
       layoutEduBook(edu, journey, cssW, cssH, small);
@@ -596,25 +658,46 @@ export default function BannerParticlePortal({ revealed, pinRef }: Props) {
     const render = (rawProgress: number) => {
       if (!imgReady || cssW === 0 || cssH === 0) return;
 
-      // One scroll range, two legs. The first leg is untouched: it still
-      // runs 0..1 over exactly the scroll distance it always did. The second
-      // only begins once the first has fully finished, and its own frame at
-      // progress 0 is a pixel match for the first leg's frame at progress 1,
-      // so the handoff has no boundary of any kind.
-      const journeyT = (rawProgress - LEGACY_SPAN) / JOURNEY_SPAN;
-      if (journeyT > 0 && journey) {
-        const t = clamp(journeyT, 0, JOURNEY_END);
+      // One scroll range, and the banner's own leg is untouched: it still
+      // runs 0..1 over exactly the scroll distance it always did. From the
+      // gateway on, the frame is the journey's -- flown by the director, not
+      // the scroll -- and its first frame, at rest at the gateway, is a pixel
+      // match for the banner leg's last, so the handoff has no boundary.
+      const journeyOn =
+        rawProgress >= LEGACY_SPAN || director.pos > 0 || director.target > 0;
+      if (journeyOn && journey) {
+        const t = director.t;
+        const time = timeRef.current;
         // Zero until the book is opened; then the camera goes on in.
-        setJourneyDolly(openingDolly(opening) * OPEN_DOLLY * journey.unit);
+        const dolly = openingDolly(opening) * OPEN_DOLLY * journey.unit;
+        setJourneyDolly(dolly);
+        // The guide, worked out against the camera this frame is about to
+        // be drawn from -- first, so the field it passes through can part
+        // round it. Once the book is being made of it, it is the book's.
+        sampleCamera(guideCam, journey, focal, t);
+        guideCam.z += dolly;
+        solveGuide(guide, director, guideCam, journey, focal, time);
+        // Until the book has begun, it is told where the guide is resting,
+        // so that when it does begin, the guide is its seed.
+        if (!edu.cued) {
+          edu.handoff =
+            director.pos === director.last ? guideHandoff(guide) : null;
+        }
+        if (eduE > 0) guide.on = false;
+        setGalaxyClaim(guide.claimed ? guide.p : null);
+        const wake = guide.on ? guideWake(guide, director) : null;
+        if (wake) setJourneyWake(...wake);
+        else clearJourneyWake();
         renderJourney(
           ctx,
           journey,
           particles,
           t,
-          timeRef.current,
+          time,
           cssW,
           cssH,
-          focal
+          focal,
+          { prevT: director.prevT, presence: director.presence }
         );
         // Solved against the camera the frame was just drawn from, so a
         // screen's size and place in frame are the same fact as everything
@@ -648,6 +731,10 @@ export default function BannerParticlePortal({ revealed, pinRef }: Props) {
           frames,
           false
         );
+        // The guide, over everything else out there -- and past it, nothing
+        // is disturbed by it any more.
+        drawGuide(ctx, guide, journey, time);
+        clearJourneyWake();
         // Any entrance's flare and letterbox, over all of it.
         drawStationFlares(dustCtx, stations, frames, cssW, cssH);
         // Past the last project: the universe dims a little behind the book
@@ -658,7 +745,6 @@ export default function BannerParticlePortal({ revealed, pinRef }: Props) {
         // Once it is clicked, the book opens: the painted one hands over
         // to a live one drawn between the universe and the dust, lit by a
         // light laid under it and shedding dust over it.
-        const time = timeRef.current;
         const ov = frameBookOpening(opening, edu, time);
         drawBookOpeningBack(ctx, opening, edu, journey, focal, time);
         drawEduBook(dustCtx, edu, journey, focal, eduE, time, ov);
@@ -673,6 +759,7 @@ export default function BannerParticlePortal({ revealed, pinRef }: Props) {
             eduTargetAt(lastProgressRef.current)
           )
         );
+        placeContactLinks(contactLinks(opening));
         return;
       }
 
@@ -685,6 +772,11 @@ export default function BannerParticlePortal({ revealed, pinRef }: Props) {
       resetBookOpening(opening, journey);
       setJourneyDolly(0);
       placeBookHit(null);
+      placeContactLinks(null);
+      // ...and the guide is one of the galaxy's motes again.
+      resetGuide(guide);
+      setGalaxyClaim(null);
+      clearJourneyWake();
       if (journey) drawEduBook(dustCtx, edu, journey, focal, 0, timeRef.current);
       dustCtx.clearRect(0, 0, cssW, cssH);
 
@@ -888,6 +980,32 @@ export default function BannerParticlePortal({ revealed, pinRef }: Props) {
     });
     triggerRef.current = trigger;
 
+    // How the director reads and moves the page: each stop is a scroll
+    // position of its own, and it puts the page there as it sets off, so
+    // the page is always where the journey is going.
+    const scrollHooks: ScrollHooks = {
+      raw: () => lastProgressRef.current,
+      rawOf: (k) => LEGACY_SPAN + k * STOP_SPAN,
+      px: () => {
+        const st = triggerRef.current;
+        const len = st ? st.end - st.start : 0;
+        return len > 0 ? 1 / len : 1e-4;
+      },
+      scrollTo: (raw) => {
+        const st = triggerRef.current;
+        if (!st) return raw;
+        const len = st.end - st.start;
+        const y = Math.round(st.start + raw * len);
+        window.scrollTo({ top: y, behavior: "instant" });
+        return len > 0 ? (y - st.start) / len : raw;
+      },
+    };
+    const detachDirector = attachDirector(
+      director,
+      scrollHooks,
+      () => timeRef.current
+    );
+
     window.addEventListener("resize", onResize);
 
     // Keeps rendering every frame (not just on scroll) so idle orbit/spin
@@ -918,6 +1036,10 @@ export default function BannerParticlePortal({ revealed, pinRef }: Props) {
         1
       );
       if (Math.abs(target - eduE) < 1e-4) eduE = target;
+      // The journey, on its own clock. It may not leave the book's stop
+      // until the book has been unmade.
+      director.canLeaveLast = eduE <= 0.0005 && !held;
+      updateDirector(director, dt, timeRef.current, scrollHooks);
       if (revealedRef.current && isVisible) render(lastProgressRef.current);
       rafId = requestAnimationFrame(tick);
     };
@@ -940,6 +1062,9 @@ export default function BannerParticlePortal({ revealed, pinRef }: Props) {
       disposeEduBook(edu);
       disposeBookOpening(opening);
       setJourneyDolly(0);
+      detachDirector();
+      setGalaxyClaim(null);
+      clearJourneyWake();
       bookHit.removeEventListener("click", onBookClick);
       bookHit.removeEventListener("pointerenter", onBookEnter);
       bookHit.removeEventListener("pointerleave", onBookLeave);
@@ -973,6 +1098,21 @@ export default function BannerParticlePortal({ revealed, pinRef }: Props) {
         aria-label="Open the book"
         tabIndex={-1}
       />
+      {CONTACT.entries.map((e, i) => (
+        <a
+          key={e.label}
+          ref={(el) => {
+            contactLinkRefs.current[i] = el;
+          }}
+          className={styles.contactLink}
+          href={e.href}
+          aria-label={`${e.label}: ${e.value}`}
+          tabIndex={-1}
+          {...(e.href.startsWith("http")
+            ? { target: "_blank", rel: "noopener noreferrer" }
+            : {})}
+        />
+      ))}
       {/* What the book's open pages say, for anything that cannot see them
           written: on the page it is ink in the paper, not text. */}
       {PAGES.map((page) => (
@@ -988,6 +1128,16 @@ export default function BannerParticlePortal({ revealed, pinRef }: Props) {
           </ul>
         </section>
       ))}
+      <section className={styles.srOnly} aria-label={CONTACT.heading}>
+        <h2>{CONTACT.heading}</h2>
+        <ul>
+          {CONTACT.entries.map((e) => (
+            <li key={e.label}>
+              {e.label}: {e.value}
+            </li>
+          ))}
+        </ul>
+      </section>
     </div>
   );
 }

@@ -36,6 +36,14 @@
  * the leaf comes down blank-backed over where it was. Once Experience is
  * written, the book floats again.
  *
+ * Then, once that has lain a while, the finale (bookFinale): a bird comes
+ * for it out of the dark, lands on it, takes it up, and as it is carried
+ * off the book gives itself up -- its leather burning back to motes, its
+ * leaves pressed into one sheet of parchment that rolls itself up -- and
+ * the scroll it has become is brought back, let go, and opens on the last
+ * page (contactPage). The live book draws that too, the parchment as one
+ * more part of it; and over it, the bird.
+ *
  * All of it is a function of one clock, `t`. Scrolling back up runs that
  * clock backwards (a good deal faster) so the ink goes and the book shuts
  * before the universe takes it apart again.
@@ -44,12 +52,16 @@
 import {
   BOOK,
   createBookBake,
+  createParchBake,
   type BookArt,
   type BookBake,
+  type BookMap,
   type BookMapKey,
   type BookMaps,
+  type ParchBake,
 } from "./antiqueBook";
 import {
+  PART_KEYS,
   PL,
   T,
   YP,
@@ -72,6 +84,7 @@ import {
   uploadBookInk,
   uploadBookMap,
   uploadBookMesh,
+  uploadContactInk,
   type BookGL,
   type BookView,
 } from "./bookGL";
@@ -91,6 +104,35 @@ import {
   spreadInkSize,
   type SpreadInk,
 } from "./bookSpread";
+import {
+  GRIP_LOCAL,
+  CONTACT_AT,
+  STAGE_END,
+  birdHolds,
+  clearFinale,
+  createFinale,
+  drawFinaleMotes,
+  finaleAt,
+  finaleCalm,
+  finaleDolly,
+  finaleSpan,
+  finaleTakeover,
+  finaleVeil,
+  openHalf,
+  openWidth,
+  type Finale,
+  type FinaleStage,
+} from "./bookFinale";
+import { LH_FINAL, XC, buildSheet, sheetPoint } from "./parchmentScroll";
+import {
+  bakeContact,
+  contactCandle,
+  contactInkSize,
+  contactPens,
+  contactToSheet,
+  type ContactInk,
+} from "./contactPage";
+import { drawBird } from "./nightBird";
 
 const { BW, HT, X0, YAW, PITCH, ROLL, CAM_D, KEY_DIR, FILL_DIR } = BOOK;
 
@@ -131,6 +173,16 @@ const HANDOFF: [number, number] = [0.08, 0.5];
 /** If the live book is somehow not ready yet, the clock waits here, before
  *  anything has visibly begun. */
 const WAIT_AT = 0.05;
+/** The finale (bookFinale) runs back at least this many times faster --
+ *  and faster still if need be, so that it is all undone within this. */
+const FIN_CLOSE_RATE = 10;
+const FIN_CLOSE_S = 2.5;
+/** How far from its middle anything of it can be drawn once the bird has
+ *  it: further than the book ever goes. */
+const FIN_DEPTH = 2.6;
+/** The candle's reach over the parchment, and how bright it is at most. */
+const CONTACT_CANDLE_R = 0.3;
+const CONTACT_CANDLE_K = 0.5;
 
 /** The board comes away from the pages, then goes over. */
 const CRACK: [number, number] = [2.5, 3.35];
@@ -223,8 +275,11 @@ function leafTurn(t: number, delay: number, stretch: number) {
 /** Its float, 1 as it floated shut: stilled at the click, quite still
  *  while it lies open and is written in, and some of it back after. */
 function calmAt(o: BookOpening, t: number) {
+  const c = finC(o, t);
   return (
-    1 - smoothstep(0, 0.7, t) + PAGE_FLOAT * pageCalm(o.ink, t - OPEN_END)
+    1 -
+    smoothstep(0, 0.7, t) +
+    PAGE_FLOAT * pageCalm(o.ink, t - OPEN_END) * (c > 0 ? finaleCalm(c) : 1)
   );
 }
 
@@ -342,7 +397,7 @@ type Dust = {
   sway: number;
 };
 
-// Palette slots.
+// Palette slots (bookFinale's motes use the same: and the last two).
 const C_WARM = 0;
 const C_GOLD = 1;
 const C_PALE = 2;
@@ -352,6 +407,8 @@ const PALETTE = [
   [255, 204, 140],
   [255, 243, 226],
   [232, 162, 104],
+  [255, 150, 72],
+  [196, 204, 255],
 ] as const;
 
 type IdleWindow = Window & {
@@ -380,6 +437,8 @@ export type BookOpening = {
    *  was through its turn. */
   builtAt: number;
   builtTurn: number;
+  /** ...and the parchment's shape it was last built with. */
+  builtSheet: string;
   view: BookView;
   /** The clock, and whether it is running forward. */
   t: number;
@@ -415,6 +474,21 @@ export type BookOpening = {
   inkFor: number;
   pagePx: number;
   pens: number[];
+  /** The finale (bookFinale): its state; the parchment's map, baked once
+   *  the book has been opened (in a worker, if one can be had); the last
+   *  page, set; and whether the live book is drawn over the whole screen,
+   *  as it is once the bird has it. */
+  fin: Finale;
+  parchMap: BookMap | null;
+  parchWorker: Worker | null;
+  parchBake: ParchBake | null;
+  parchFailed: boolean;
+  contact: ContactInk | null;
+  /** The last page the GPU has been given. */
+  contactUp: ContactInk | null;
+  glFull: boolean;
+  /** Where the last page's addresses are on screen, once written there. */
+  links: Array<[number, number, number, number] | null>;
 };
 
 export function createBookOpening(): BookOpening {
@@ -449,6 +523,7 @@ export function createBookOpening(): BookOpening {
     shape: { roll: 0, cover: 0, slabs },
     builtAt: NaN,
     builtTurn: NaN,
+    builtSheet: "",
     view: {
       R: new Float32Array(9),
       pivot: [0, 0, 0],
@@ -472,6 +547,15 @@ export function createBookOpening(): BookOpening {
       candle: [0, 0, 1, 0],
       leaf: new Float32Array(LEAF_N * 2),
       leafL: [0, 0, 1, 0],
+      squash: 0,
+      dis: [0, 0],
+      fadeExp: 0,
+      ember: 0,
+      inkCOn: 0,
+      inkCT: [0, 1],
+      sheetMap: "paper",
+      book: true,
+      depthR: 1.9,
     },
     t: 0,
     wanted: false,
@@ -500,6 +584,15 @@ export function createBookOpening(): BookOpening {
     inkFor: 0,
     pagePx: 0,
     pens: [0, 0, 0, 0, 0, 0, 0, 0],
+    fin: createFinale(),
+    parchMap: null,
+    parchWorker: null,
+    parchBake: null,
+    parchFailed: false,
+    contact: null,
+    contactUp: null,
+    glFull: false,
+    links: [null, null, null, null],
   };
 }
 
@@ -595,6 +688,8 @@ function watchContext(o: BookOpening) {
     // Everything is handed to the GPU again, a map a frame (see prepare).
     o.gl = null;
     o.builtAt = NaN;
+    o.builtSheet = "?";
+    o.contactUp = null;
     if (o.maps) o.pending = Object.keys(o.maps) as BookMapKey[];
   });
 }
@@ -663,6 +758,108 @@ function prepare(o: BookOpening, b: EduBook) {
   if (o.bake && !o.maps) schedule(o, b);
   if (o.maps && o.pending.length) work(o, b, 0);
   preparePage(o, b);
+  prepareFinale(o, b);
+}
+
+/** The scroll the book becomes, once it has been opened: its parchment
+ *  baked, and its last page set, both long before they are needed -- and
+ *  handed to the GPU (again, if the GPU has had to start over). */
+function prepareFinale(o: BookOpening, b: EduBook) {
+  const art = b.art;
+  if (!art || o.noGL || o.t <= OPEN_END) return;
+  if (!o.parchMap && !o.parchWorker && !o.parchBake && !o.parchFailed) {
+    startParch(o, art.bookPx, b.res);
+  }
+  if (o.parchBake && !o.parchMap && o.parchBake.step(4)) {
+    o.parchMap = o.parchBake.result();
+    o.parchBake = null;
+  }
+  const gl = o.gl && !o.gl.lost ? o.gl : null;
+  if (gl && o.parchMap && !gl.tex.parch) uploadBookMap(gl, "parch", o.parchMap);
+  // (Set again if the screen has changed so that the parchment will open to
+  // another width -- so long as nothing of it has been written yet.)
+  if (
+    o.contact &&
+    Math.abs(o.contact.half - openHalf(o.small)) > 1e-9 &&
+    finC(o, o.t) < CONTACT_AT - 1
+  ) {
+    o.contact = null;
+  }
+  // (Set while the book lies still, its last page written and drying, so
+  // the moment it takes is never seen.)
+  if (
+    !o.contact &&
+    o.pageFont === "ready" &&
+    o.ink &&
+    o.t - OPEN_END > o.ink.written + 0.8
+  ) {
+    const { sheetPx } = finalFraming(o, b, art);
+    const most = gl ? (gl.gl.getParameter(gl.gl.MAX_TEXTURE_SIZE) as number) : 4096;
+    const [w, h] = contactInkSize(sheetPx, b.res, Math.min(4096, most));
+    o.contact = bakeContact(w, h, openHalf(o.small), sheetPx);
+  }
+  if (gl && o.contact && (o.contactUp !== o.contact || !gl.inkC)) {
+    uploadContactInk(gl, o.contact.canvas);
+    o.contactUp = o.contact;
+  }
+}
+
+function startParch(o: BookOpening, bookPx: number, res: number) {
+  const width = 2 * LH_FINAL;
+  if (typeof Worker !== "undefined") {
+    try {
+      const worker = new Worker(
+        new URL("./bookBake.worker.ts", import.meta.url),
+        { type: "module" }
+      );
+      worker.onmessage = (e: MessageEvent<{ bookPx: number; map: BookMap }>) => {
+        worker.terminate();
+        if (o.parchWorker !== worker) return;
+        o.parchWorker = null;
+        o.parchMap = e.data.map;
+      };
+      worker.onerror = () => {
+        worker.terminate();
+        if (o.parchWorker !== worker) return;
+        o.parchWorker = null;
+        o.parchBake = createParchBake(bookPx, res, width);
+      };
+      worker.postMessage({ bookPx, res, width });
+      o.parchWorker = worker;
+      return;
+    } catch {
+      // No worker to be had: bake here instead, a slice a frame.
+    }
+  }
+  o.parchBake = createParchBake(bookPx, res, width);
+}
+
+/** Whether everything the finale needs has been handed over. (The
+ *  parchment's own map may be missing, if it could not be baked: the
+ *  leaves' stands in for it.) */
+function finaleReady(o: BookOpening) {
+  const gl = o.gl;
+  if (!gl || gl.lost || !o.contact || o.contactUp !== o.contact || !gl.inkC) {
+    return false;
+  }
+  return Boolean(gl.tex.parch) || o.parchFailed || (!o.parchWorker && !o.parchBake && !o.parchMap);
+}
+
+/** Where the scroll comes to rest to be read: how near (world z), so that
+ *  it opens as large as the screen allows; and how tall it is then. */
+function finalFraming(o: BookOpening, b: EduBook, art: BookArt) {
+  const K = (b.bookPx / art.bookPx) * o.fit * STAGE_END * art.focal;
+  const wo = openWidth(o.small);
+  const ho = 2 * YP;
+  const across = o.small ? 0.9 : 0.84;
+  let d = Math.max((wo * K) / (across * o.cssW), (ho * 1.04 * K) / (0.74 * o.cssH));
+  d = Math.max(d, CAM_END - FIN_DEPTH + 0.4);
+  return { z: CAM_END - d, sheetPx: (ho * K) / d };
+}
+
+/** The finale's own clock at book clock `t`: negative until it begins. */
+function finC(o: BookOpening, t: number) {
+  return o.ink ? t - OPEN_END - o.ink.span : -1;
 }
 
 /** The spread: its face fetched early; set once the book is asked to open
@@ -700,6 +897,9 @@ export function disposeBookOpening(o: BookOpening) {
   cancelIdle(o);
   o.worker?.terminate();
   o.worker = null;
+  o.parchWorker?.terminate();
+  o.parchWorker = null;
+  o.parchBake = null;
   if (o.gl) disposeBookGL(o.gl);
   o.gl = null;
   o.bake = null;
@@ -746,13 +946,29 @@ export function tickBookOpening(
     if (!ready(o)) next = Math.min(next, WAIT_AT);
     // It lies open, still, until the spread can be written.
     if (!pageReady(o)) next = Math.min(next, OPEN_END);
-    o.t = Math.min(OPEN_END + (o.ink ? o.ink.span : 0), next);
+    // ...and once it is written, until the finale can be had, if it is not
+    // yet; then the finale, to its end.
+    const pageEnd = OPEN_END + (o.ink ? o.ink.span : 0);
+    const end =
+      o.ink && o.contact && finaleReady(o)
+        ? pageEnd + finaleSpan(o.contact.span)
+        : pageEnd;
+    o.t = Math.min(end, next);
   } else if (o.t > 0) {
+    const pageEnd = OPEN_END + (o.ink ? o.ink.span : 0);
     const rate =
-      o.t > OPEN_END
-        ? Math.max(PAGE_CLOSE_RATE, (o.ink ? o.ink.span : 0) / PAGE_CLOSE_S)
-        : CLOSE_RATE;
-    o.t = Math.max(0, o.t - dt * rate);
+      o.ink && o.t > pageEnd
+        ? Math.max(
+            FIN_CLOSE_RATE,
+            (o.contact ? finaleSpan(o.contact.span) : 30) / FIN_CLOSE_S
+          )
+        : o.t > OPEN_END
+          ? Math.max(PAGE_CLOSE_RATE, (o.ink ? o.ink.span : 0) / PAGE_CLOSE_S)
+          : CLOSE_RATE;
+    // (Never back past where the finale began in the same step as the
+    // finale itself: the page part keeps its own pace.)
+    const back = o.t - dt * rate;
+    o.t = Math.max(0, o.ink && o.t > pageEnd ? Math.max(pageEnd, back) : back);
     if (o.t <= 0) o.wanted = false;
   } else {
     o.wanted = false;
@@ -762,12 +978,17 @@ export function tickBookOpening(
 
 /** How much further to dim the universe behind it, 0..1. */
 export function openingVeil(o: BookOpening) {
-  return PAGE_VEIL * smoothstep(OPEN_END + 0.3, OPEN_END + 3, o.t);
+  const page = PAGE_VEIL * smoothstep(OPEN_END + 0.3, OPEN_END + 3, o.t);
+  const c = finC(o, o.t);
+  if (c <= 0) return page;
+  return 1 - (1 - page) * (1 - finaleVeil(c));
 }
 
-/** How far the camera has gone in, 0..1. */
+/** How far the camera has gone in, 0..1 -- and on, as the scroll is
+ *  carried off. */
 export function openingDolly(o: BookOpening) {
-  return easeInOutSine(span(o.t, 0.9, 8.9));
+  const c = finC(o, o.t);
+  return easeInOutSine(span(o.t, 0.9, 8.9)) + (c > 0 ? finaleDolly(c) : 0);
 }
 
 /** Where to catch the click: over the closed book, while it can open. */
@@ -793,6 +1014,8 @@ export function resetBookOpening(o: BookOpening, w: JourneyWorld | null) {
   o.wanted = false;
   o.hover = 0;
   o.dust.length = 0;
+  clearFinale(o.fin);
+  o.links.fill(null);
   if (w) releaseMotes(o, w);
   hide(o);
 }
@@ -899,7 +1122,9 @@ const PV = {
   px: 0,
   py: 0,
   pz: 0,
+  tx: 0,
   ty: 0,
+  tz: 0,
   D: CAM_D as number,
   F: 1,
   cx: 0,
@@ -955,12 +1180,29 @@ function poseAt(
   PV.px = (X0 - T) * open;
   PV.py = 0;
   PV.pz = 0;
+  PV.tx = 0;
   PV.ty = 0.045 * a1 * (1 - 0.6 * a2);
+  PV.tz = 0;
   PV.D = CAM_D + (CAM_END - CAM_D) * push;
   PV.F = art.focal;
-  const kk = fr.k * lerp(1, fit, open);
+  let kk = fr.k * lerp(1, fit, open);
   PV.cx = fr.x;
   PV.cy = fr.y;
+  // Once the bird has it, it is held from the head of its spine, and the
+  // bird says where that is, and how it hangs.
+  const c = finC(o, t);
+  if (c > 0) {
+    const ff = o.fin.frame;
+    poseMatrix(yaw + ff.dYaw, pitch + ff.dPitch, roll + ff.dRoll, PV.R);
+    PV.px = GRIP_LOCAL[0];
+    PV.py = GRIP_LOCAL[1];
+    PV.pz = GRIP_LOCAL[2];
+    PV.tx = ff.grip[0];
+    PV.ty = ff.grip[1];
+    PV.tz = ff.grip[2];
+    PV.cy += ff.dy * o.cssH;
+    kk *= ff.scale;
+  }
   PV.rc = Math.cos(fr.rot) * kk;
   PV.rs = Math.sin(fr.rot) * kk;
   PV.q0x = (art.ox - art.ax) * (1 - open);
@@ -975,9 +1217,16 @@ function project(lx: number, ly: number, lz: number, out: number[]) {
   const y = ly - PV.py;
   const z = lz - PV.pz;
   const R = PV.R;
-  const wx = R[0] * x + R[1] * y + R[2] * z;
+  const wx = R[0] * x + R[1] * y + R[2] * z + PV.tx;
   const wy = R[3] * x + R[4] * y + R[5] * z + PV.ty;
-  const wz = R[6] * x + R[7] * y + R[8] * z;
+  const wz = R[6] * x + R[7] * y + R[8] * z + PV.tz;
+  projectWorld(wx, wy, wz, out);
+}
+
+/** A point of the world the book is in (after its pose) on screen, with its
+ *  camera distance -- for what is in that world with it: the bird. out:
+ *  [x, y, d]. */
+function projectWorld(wx: number, wy: number, wz: number, out: number[]) {
   const d = PV.D - wz;
   const qx = PV.q0x + (PV.F * wx) / d;
   const qy = PV.q0y - (PV.F * wy) / d;
@@ -986,12 +1235,43 @@ function project(lx: number, ly: number, lz: number, out: number[]) {
   out[2] = d;
 }
 
+/** Screen px per world unit at camera distance `d`. */
+function pxAt(d: number) {
+  return (Math.hypot(PV.rc, PV.rs) * PV.F) / d;
+}
+
+/** Where the book is held from as it lies open, in the world: the point
+ *  the finale's pose is worked from, so that at its first moment the book
+ *  is exactly where it lay. */
+const GRIP_REST: [number, number, number] = [0, 0, 0];
+let gripRestSet = false;
+let pitchOpen = 0;
+function gripRest() {
+  if (!gripRestSet) {
+    gripRestSet = true;
+    // The open pose, as poseAt has it once both its turns are done.
+    const yaw = YAW - 0.1 - (YAW - 0.1);
+    const pitch = PITCH - 0.12 - (PITCH - 0.12 + 0.16);
+    const roll = ROLL + 0.03 - (ROLL + 0.03);
+    pitchOpen = pitch;
+    const R = new Float64Array(9);
+    poseMatrix(yaw, pitch, roll, R);
+    const x = GRIP_LOCAL[0] - (X0 - T);
+    const y = GRIP_LOCAL[1];
+    const z = GRIP_LOCAL[2];
+    GRIP_REST[0] = R[0] * x + R[1] * y + R[2] * z;
+    GRIP_REST[1] = R[3] * x + R[4] * y + R[5] * z + 0.045 * (1 - 0.6);
+    GRIP_REST[2] = R[6] * x + R[7] * y + R[8] * z;
+  }
+  return GRIP_REST;
+}
+
 const P3 = [0, 0, 0];
 
 /** How small the open book must be to fit this screen, and the box the
  *  live book is drawn in. */
 function ensureFit(o: BookOpening, b: EduBook, art: BookArt) {
-  const key = `${o.cssW}x${o.cssH}:${b.bookPx}:${art.bookPx}`;
+  const key = `${o.cssW}x${o.cssH}:${b.bookPx}:${art.bookPx}:${o.glFull ? 1 : 0}`;
   if (o.fitKey === key) return;
   o.fitKey = key;
   poseAt(o, b, art, OPEN_END, 0, 1);
@@ -1022,7 +1302,10 @@ function ensureFit(o: BookOpening, b: EduBook, art: BookArt) {
   const top = P3[1];
   project(X0 - T - 0.4 * PL, -YP, 0.02, P3);
   o.pagePx = Math.abs(P3[1] - top) * o.fit;
-  if (o.gl) {
+  if (o.gl && o.glFull) {
+    // Carried off, it can be anywhere.
+    placeBookGL(o.gl, 0, 0, Math.round(o.cssW), Math.round(o.cssH), b.res);
+  } else if (o.gl) {
     const k = b.bookPx / art.bookPx;
     const w = Math.min(o.cssW, Math.round(Math.max(art.w * k * 1.35, ow * o.fit * 1.3 + 40)));
     const h = Math.min(o.cssH, Math.round(Math.max(art.h * k, oh * o.fit) * 1.8));
@@ -1050,13 +1333,23 @@ export function frameBookOpening(
   const art = b.art;
   if (!art) return null;
   if (o.t <= 0 && o.hover < 0.003) return null;
-  ensureFit(o, b, art);
   const t = o.t;
+  // The finale, worked out first: the pose is the bird's from then on.
+  const c = finC(o, t);
+  const fin = c > 0;
+  if (fin !== o.glFull) o.glFull = fin;
+  ensureFit(o, b, art);
+  if (fin) {
+    const g = gripRest();
+    finaleAt(o.fin, c, g, finalFraming(o, b, art).z, pitchOpen, o.small);
+  }
   const { open, kk } = poseAt(o, b, art, t, time);
   project(lerp(-0.03, X0 - T, open), 0.02, 0, P3);
   o.cx = P3[0];
   o.cy = P3[1];
   o.size = art.h * kk;
+  // (Brought nearer, as the scroll is at the last, its light is larger.)
+  if (fin) o.size *= lerp(1, PV.D / P3[2], smoothstep(0, 1, c));
   if (t <= 0) return null;
   return {
     artAlpha: 1 - smoothstep(HANDOFF[0], HANDOFF[1], t),
@@ -1090,13 +1383,35 @@ export function renderBookOpening(o: BookOpening, b: EduBook, time: number) {
   // The shape only changes while something is moving.
   const st = clamp(t, CRACK[0], SHAPE_END);
   const tu = leafTurnAt(o, t);
-  if (st !== o.builtAt || tu !== o.builtTurn) {
+  // ...and once the bird has it, as the book goes into the parchment.
+  const c = finC(o, t);
+  const ff = o.fin.frame;
+  const sh = o.fin.sheet;
+  const sheetOn = c > 0 && ff.sheetOn;
+  const fkey = sheetOn
+    ? `${ff.bookOn ? 1 : 0}:${sh.flat}:${sh.lh}:${sh.ell}:${sh.parch ? 1 : 0}`
+    : "";
+  if (st !== o.builtAt || tu !== o.builtTurn || fkey !== o.builtSheet) {
     shapeAt(o, t);
-    buildBookMesh(o.mesh, o.shape);
+    if (!sheetOn || ff.bookOn) {
+      buildBookMesh(o.mesh, o.shape);
+    } else {
+      for (const k of PART_KEYS) o.mesh[k].reset();
+    }
+    if (sheetOn) {
+      buildSheet(
+        o.mesh,
+        sh,
+        o.shape.slabs[TURN_LEAF],
+        o.shape.slabs[RIGHT_PAGE],
+        o.shape.roll
+      );
+    }
     uploadBookMesh(g, o.mesh);
     slabSection(o.shape.slabs[TURN_LEAF], o.shape.roll, LEAF_N, v.leaf);
     o.builtAt = st;
     o.builtTurn = tu;
+    o.builtSheet = fkey;
   }
   const R = PV.R;
   // Column-major for GL.
@@ -1112,7 +1427,9 @@ export function renderBookOpening(o: BookOpening, b: EduBook, time: number) {
   v.pivot[0] = PV.px;
   v.pivot[1] = PV.py;
   v.pivot[2] = PV.pz;
+  v.T[0] = PV.tx;
   v.T[1] = PV.ty;
+  v.T[2] = PV.tz;
   v.D = PV.D;
   v.F = PV.F;
   v.C[0] = PV.cx;
@@ -1168,6 +1485,33 @@ export function renderBookOpening(o: BookOpening, b: EduBook, time: number) {
   v.leafL[1] = R[1] * key[0] + R[4] * key[1] + R[7] * key[2];
   v.leafL[2] = R[2] * key[0] + R[5] * key[1] + R[8] * key[2];
   v.leafL[3] = smoothstep(0.03, 0.22, tu) * (1 - smoothstep(0.9, 1, tu));
+  // The finale: the book going into the parchment, and the parchment's own
+  // page, and its own candle.
+  const fin = c > 0;
+  v.squash = fin ? ff.squash : 0;
+  v.dis[0] = fin ? ff.disL : 0;
+  v.dis[1] = fin ? ff.disP : 0;
+  v.fadeExp = fin ? ff.fadeExp : 0;
+  v.ember = fin ? ff.ember : 0;
+  v.book = !fin || ff.bookOn;
+  v.sheetMap = fin && sh.parch ? "parch" : "paper";
+  v.depthR = fin ? FIN_DEPTH : 1.9;
+  const ct = o.contact;
+  const pc = fin ? ff.contactP : -1;
+  v.inkCOn = ct && pc > 0 ? 1 : 0;
+  if (ct) {
+    const k = ct.inkTo - ct.inkFrom;
+    v.inkCT[0] = (pc - ct.inkFrom) / k;
+    v.inkCT[1] = k;
+    if (pc > 0) {
+      contactCandle(ct, pc, time, CD);
+      contactToSheet(CD[0], CD[1], PQ);
+      v.candle[0] = XC + PQ[0];
+      v.candle[1] = PQ[1];
+      v.candle[2] = CONTACT_CANDLE_R;
+      v.candle[3] = CONTACT_CANDLE_K * CD[2];
+    }
+  }
   drawBookGL(g, v);
   if (!o.shown && o.canvas) {
     o.canvas.style.visibility = "visible";
@@ -1297,6 +1641,12 @@ export function drawBookOpeningBack(
   const cx = o.cx;
   const cy = o.cy;
   const S = o.size;
+  // The finale: the universe quieter, with a cold haze through it; and the
+  // light the book stands in going with it.
+  const fc = finC(o, t);
+  const ff = o.fin.frame;
+  if (fc > 0) drawHaze(ctx, o, ff.quiet, time);
+  const fg = fc > 0 ? ff.glow : 1;
   if (t > 0) {
     // The faint warm light the closed book already stood in (drawEduBook
     // hands this over while it opens).
@@ -1309,7 +1659,7 @@ export function drawBookOpeningBack(
   }
   // And the golden one it wakes into.
   const a2 = easeInOutSine(span(t, 3.2, 8.3));
-  const g = glowAt(t) + 0.3 * pulseAt(t) + 0.35 * o.hover;
+  const g = (glowAt(t) + 0.3 * pulseAt(t) + 0.35 * o.hover) * fg;
   if (g > 0.003) {
     glow(ctx, cx, cy, S * (1.0 + 0.4 * a2 + 0.2 * g), [
       [0, 255, 190, 112, 0.16 * g],
@@ -1322,6 +1672,12 @@ export function drawBookOpeningBack(
   if (t <= 0) {
     ctx.globalCompositeOperation = "source-over";
     return;
+  }
+  // What of the bird is behind the book, under it.
+  if (fc > 0 && birdHolds(fc)) {
+    ctx.globalCompositeOperation = "source-over";
+    drawBird(ctx, o.fin.bird, projectWorld, pxAt, PV.D, Math.min(window.devicePixelRatio || 1, 2), o.fin.birdScratch, birdSplit(o, fc), true);
+    ctx.globalCompositeOperation = "lighter";
   }
   if (!o.motesCued && t > 0.15) cueMotes(o, w, focal, time);
   const sprites = w.bank.sprites;
@@ -1351,6 +1707,42 @@ export function drawBookOpeningBack(
   }
   ctx.globalCompositeOperation = "source-over";
   ctx.globalAlpha = 1;
+}
+
+/** The haze that comes up through the universe as it quiets for the
+ *  finale: a few broad, slow drifts of cold light, and the edges of the
+ *  frame gone a little darker. */
+function drawHaze(
+  ctx: CanvasRenderingContext2D,
+  o: BookOpening,
+  q: number,
+  time: number
+) {
+  if (q < 0.004) return;
+  const W = o.cssW;
+  const H = o.cssH;
+  const R = Math.max(W, H);
+  ctx.globalCompositeOperation = "source-over";
+  const vg = ctx.createRadialGradient(W / 2, H / 2, R * 0.25, W / 2, H / 2, R * 0.75);
+  vg.addColorStop(0, "rgba(10,7,6,0)");
+  vg.addColorStop(1, `rgba(10,7,6,${(0.38 * q).toFixed(4)})`);
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, W, H);
+  ctx.globalCompositeOperation = "lighter";
+  for (let i = 0; i < 4; i++) {
+    const ph = i * 1.7;
+    const x = W * (0.5 + 0.36 * Math.sin(time * 0.031 + ph) * (i % 2 ? 1 : -1));
+    const y = H * (0.5 + 0.3 * Math.cos(time * 0.026 + ph * 1.3));
+    const r = R * (0.32 + 0.08 * i);
+    const a = (0.022 + 0.008 * Math.sin(time * 0.11 + ph)) * q;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, `rgba(92,84,150,${a.toFixed(4)})`);
+    g.addColorStop(0.5, `rgba(70,60,120,${(a * 0.45).toFixed(4)})`);
+    g.addColorStop(1, "rgba(50,40,90,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -1451,9 +1843,12 @@ function emitDust(o: BookOpening, dt: number) {
       }
     }
   }
-  // Once it lies open, the motes that rise off the pages and never stop.
-  if (t > 6.6) {
-    const rate = (o.small ? 0.8 : 1.4) * smoothstep(6.6, 8.0, t);
+  // Once it lies open, the motes that rise off the pages and never stop --
+  // until the bird takes it, and the finale has motes of its own.
+  const fc = finC(o, t);
+  const kept = fc > 0 ? 1 - finaleTakeover(fc) : 1;
+  if (t > 6.6 && kept > 0.001) {
+    const rate = (o.small ? 0.8 : 1.4) * smoothstep(6.6, 8.0, t) * kept;
     for (let n = due(o, 5, rate, dt); n > 0; n--) {
       const s = rnd() < 0.5 ? slabs[NSTACK - 1] : slabs[NSTACK + NFLUTTER];
       slabPoint(s, roll, 0.12 + 0.82 * rnd(), PT);
@@ -1506,6 +1901,30 @@ function emitDust(o: BookOpening, dt: number) {
       spreadPoint(o, s.x0 + (s.x1 - s.x0) * rnd(), s.y + (rnd() - 0.5) * 0.02, PQ);
       project(PQ[0], PQ[1], PQ[2] + 0.004, P3);
       spawn(o, P3[0], P3[1], (rnd() - 0.5) * 4 * sc, -(2 + rnd() * 5) * sc, 3 + rnd() * 2.5, 0.4 + rnd() * 0.5, 0.25 + rnd() * 0.3, rnd() < 0.6 ? C_GOLD : C_PALE);
+    }
+  }
+  // The last page, as it is written: the same pen, the same light.
+  const ct = o.contact;
+  const pc = fc > 0 ? o.fin.frame.contactP : -1;
+  if (ct && pc > 0 && pc < ct.written + 0.5) {
+    const pens = contactPens(ct, pc, o.pens);
+    if (pens > 0) {
+      for (let n = due(o, 6, o.small ? 1 : 1.7, dt); n > 0; n--) {
+        const k = Math.floor(rnd() * pens);
+        contactToSheet(o.pens[k * 2] + (rnd() - 0.6) * 0.012, o.pens[k * 2 + 1] + (rnd() - 0.5) * 0.02, PQ);
+        sheetPoint(PQ[0], PQ[1], TIP);
+        project(TIP[0], TIP[1], TIP[2] + 0.004, P3);
+        spawn(o, P3[0], P3[1], (rnd() - 0.5) * 5 * sc, -(3 + rnd() * 6) * sc, 2.4 + rnd() * 2, 0.4 + rnd() * 0.45, 0.3 + rnd() * 0.3, rnd() < 0.6 ? C_GOLD : C_PALE);
+      }
+    }
+    contactCandle(ct, pc, 0, CD);
+    if (CD[2] > 0.15) {
+      for (let n = due(o, 7, (o.small ? 0.6 : 1.1) * CD[2], dt); n > 0; n--) {
+        contactToSheet(CD[0] + (rnd() - 0.5) * 0.2, CD[1] + (rnd() - 0.5) * 0.35, PQ);
+        sheetPoint(PQ[0], PQ[1], TIP);
+        project(TIP[0], TIP[1], TIP[2] + 0.02 + rnd() * 0.04, P3);
+        spawn(o, P3[0], P3[1], (rnd() - 0.5) * 6 * sc, -(2 + rnd() * 5) * sc, 3 + rnd() * 2.5, 0.35 + rnd() * 0.45, 0.22 + rnd() * 0.25, rnd() < 0.5 ? C_WARM : C_GOLD);
+      }
     }
   }
   if (ink && p > 0 && p < ink.written + 0.5) {
@@ -1602,5 +2021,77 @@ export function drawBookOpeningFront(
   dust.length = n;
   ctx.globalCompositeOperation = "source-over";
   ctx.globalAlpha = 1;
+
+  // The finale: what the book gives up, and the bird.
+  const fc = finC(o, t);
+  if (fc > 0) {
+    STAGE.size = o.size;
+    STAGE.small = o.small;
+    drawFinaleMotes(ctx, o.fin, w, o.pal, STAGE, forward ? dt : 0, time);
+    drawBird(ctx, o.fin.bird, projectWorld, pxAt, PV.D, Math.min(window.devicePixelRatio || 1, 2), o.fin.birdScratch, birdSplit(o, fc), false);
+    placeLinks(o);
+  } else {
+    o.fin.motes.length = 0;
+    o.links.fill(null);
+  }
+}
+
+/** How far off the book is where the bird stands on it or holds it: what
+ *  of the bird is further than that is behind it. */
+function birdSplit(o: BookOpening, c: number) {
+  if (!birdHolds(c)) return Infinity;
+  const g = o.fin.frame.grip;
+  projectWorld(g[0], g[1], g[2], P3);
+  return P3[2] + 0.02;
+}
+
+/** What the finale's motes see of the stage: the book, and the world. */
+const STAGE: FinaleStage = {
+  book: (x, y, z, out) => project(x, y, z, out),
+  world: (x, y, z, out) => projectWorld(x, y, z, out),
+  size: 450,
+  small: false,
+};
+
+const LK = [0, 0, 0];
+const LS = [0, 0];
+
+/** Where each address on the last page is on screen, once it has been
+ *  written and the scroll lies open and still: for the links over them. */
+function placeLinks(o: BookOpening) {
+  const ct = o.contact;
+  const ff = o.fin.frame;
+  for (let i = 0; i < o.links.length; i++) {
+    const l = ct?.links[i];
+    if (!ct || !l || ff.open < 0.999 || ff.contactP < l.at) {
+      o.links[i] = null;
+      continue;
+    }
+    let x0 = Infinity;
+    let y0 = Infinity;
+    let x1 = -Infinity;
+    let y1 = -Infinity;
+    for (const [u, v] of [
+      [l.u0, l.v0],
+      [l.u1, l.v0],
+      [l.u0, l.v1],
+      [l.u1, l.v1],
+    ]) {
+      contactToSheet(u, v, LS);
+      sheetPoint(LS[0], LS[1], LK);
+      project(LK[0], LK[1], LK[2], P3);
+      x0 = Math.min(x0, P3[0]);
+      y0 = Math.min(y0, P3[1]);
+      x1 = Math.max(x1, P3[0]);
+      y1 = Math.max(y1, P3[1]);
+    }
+    o.links[i] = [x0, y0, x1 - x0, y1 - y0];
+  }
+}
+
+/** The last page's addresses on screen (null where there is none yet), and
+ *  where each goes. */
+export function contactLinks(o: BookOpening) {
+  return o.links;
 }
 
