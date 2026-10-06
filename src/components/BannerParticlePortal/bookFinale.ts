@@ -71,7 +71,8 @@ const { BW, BT, SB, X0 } = BOOK;
  * ------------------------------------------------------------------ */
 
 const LAND = 6.4;
-const TAKE = 10.2;
+/** The bird takes the book up: from here on it is becoming the last page. */
+export const TAKE = 10.2;
 const RELEASE = 20.5;
 /** The sheet takes the place of the pages (unseen: it is them, exactly). */
 const SHEET_ON = 9.9;

@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useRef, type RefObject } from "react";
+import {
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  type Ref,
+  type RefObject,
+} from "react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import {
@@ -17,6 +23,7 @@ import {
 import {
   attachDirector,
   createDirector,
+  placeDirector,
   updateDirector,
   type ScrollHooks,
 } from "./journeyDirector";
@@ -51,6 +58,7 @@ import {
 } from "./educationBook";
 import {
   OPEN_DOLLY,
+  bookChapter,
   bookHitRect,
   contactLinks,
   createBookOpening,
@@ -64,11 +72,13 @@ import {
   renderBookOpening,
   requestBookOpen,
   resetBookOpening,
+  seekBookOpening,
   tickBookOpening,
 } from "./bookOpening";
 import { PAGES } from "./bookSpread";
 import { CONTACT } from "./contactPage";
 import ProjectStations from "@/components/ProjectStations/ProjectStations";
+import type { Section } from "@/components/Navigation/sections";
 import styles from "./BannerParticlePortal.module.css";
 
 gsap.registerPlugin(ScrollTrigger);
@@ -133,6 +143,30 @@ const EDU_MIN_BACK_S = 2.4;
 // ...and how gently, per second, it eases into its final rest.
 const EDU_FOLLOW = 3.2;
 
+// The banner still itself -- cracking in place, not yet adrift: the
+// landing, as the menu knows it.
+const HOME_SPAN = LEGACY_SPAN * HOME_END;
+// The menu does not fly the whole way to where it is sent (from the banner,
+// Contact is a minute of the book away): it cuts, as a film does. Seconds
+// down to black, and back up on where it went...
+const CUT_IN_S = 0.5;
+const CUT_OUT_S = 1.0;
+// ...and, while it is dark, how long before a light in it says something
+// is coming (the book being made ready to be seen), and how long at most it
+// waits for that before it shows what there is.
+const CUT_LIGHT_S = 0.35;
+const CUT_WAIT_MAX_S = 8;
+// Projects comes up this far into the first leg: on the threshold of the
+// hole, the guide gone on ahead, with the way in and the first world still
+// to come -- so it arrives, rather than being found there.
+const PROJECTS_FROM = 0.55;
+
+/** What the menu can ask of the journey. */
+export type PortalHandle = {
+  /** Cuts to `to`. Nothing, if it is there already. */
+  navigate: (to: Section) => void;
+};
+
 type Props = {
   revealed: boolean;
   pinRef: RefObject<HTMLElement | null>;
@@ -140,6 +174,10 @@ type Props = {
    *  formed round its opening, waiting for the scroll that starts it -- and
    *  when it leaves. */
   onGateway?: (resting: boolean) => void;
+  /** Told which part of the journey it is in, whenever that changes -- or,
+   *  during a cut, the part it is cutting to. */
+  onSection?: (section: Section) => void;
+  ref?: Ref<PortalHandle>;
 };
 
 type Particle = {
@@ -209,8 +247,13 @@ export default function BannerParticlePortal({
   revealed,
   pinRef,
   onGateway,
+  onSection,
+  ref,
 }: Props) {
   const wrapperRef = useRef<HTMLDivElement>(null);
+  // The menu's cut: the dark it goes down to, over everything here.
+  const veilRef = useRef<HTMLDivElement>(null);
+  const navigateRef = useRef<(to: Section) => void>(() => {});
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // Carries only the dust that is genuinely in front of a project screen,
   // which is the one thing that cannot be drawn on the canvas underneath.
@@ -231,6 +274,7 @@ export default function BannerParticlePortal({
   const cardNodesRef = useRef<(HTMLDivElement | null)[]>([]);
   const revealedRef = useRef(revealed);
   const onGatewayRef = useRef(onGateway);
+  const onSectionRef = useRef(onSection);
   const renderRef = useRef<(progress: number) => void>(() => {});
   const lastProgressRef = useRef(0);
   const triggerRef = useRef<ScrollTrigger | null>(null);
@@ -246,6 +290,16 @@ export default function BannerParticlePortal({
   useEffect(() => {
     onGatewayRef.current = onGateway;
   }, [onGateway]);
+
+  useEffect(() => {
+    onSectionRef.current = onSection;
+  }, [onSection]);
+
+  useImperativeHandle(
+    ref,
+    () => ({ navigate: (to: Section) => navigateRef.current(to) }),
+    []
+  );
 
   // Reveals the canvas the instant the real fold/unfold animation settles.
   // At progress 0 every particle sits at its exact home cell with no gap,
@@ -265,6 +319,7 @@ export default function BannerParticlePortal({
     const dustCanvas = dustCanvasRef.current;
     const bookCanvas = bookCanvasRef.current;
     const bookHit = bookHitRef.current;
+    const veil = veilRef.current;
     const pinTarget = pinRef.current;
     if (
       !wrapper ||
@@ -272,6 +327,7 @@ export default function BannerParticlePortal({
       !dustCanvas ||
       !bookCanvas ||
       !bookHit ||
+      !veil ||
       !pinTarget
     ) {
       return;
@@ -1004,6 +1060,163 @@ export default function BannerParticlePortal({
       () => timeRef.current
     );
 
+    // The menu. Wherever it is sent, it cuts: down to black, everything put
+    // where it is going while it is dark, and back up on it -- the journey
+    // and the book carried on from there on their own clocks as ever, so
+    // what is seen as it comes up is that place arriving, not a still.
+    type Cut = { to: Section; phase: "in" | "wait" | "out"; at: number };
+    let cut: Cut | null = null;
+    let veilA = 0;
+    let veilShown = -1;
+    let veilLit = false;
+
+    // Where the journey is, as the menu names it.
+    const sectionNow = (): Section => {
+      if (cut) return cut.to;
+      if (
+        director.target === 0 &&
+        director.pos === 0 &&
+        lastProgressRef.current < HOME_SPAN
+      ) {
+        return "home";
+      }
+      if (director.target < director.last) return "projects";
+      return bookChapter(opening);
+    };
+
+    // Already there: at the top of the banner; among the worlds; at the
+    // book, open at that chapter.
+    const isAt = (to: Section) => {
+      const atBook =
+        director.pos === director.last && director.target === director.last;
+      if (to === "home") {
+        return (
+          director.target === 0 &&
+          director.pos === 0 &&
+          lastProgressRef.current <= scrollHooks.px() * 2
+        );
+      }
+      if (to === "projects") {
+        return (
+          director.pos >= 1 &&
+          director.target >= 1 &&
+          director.target < director.last
+        );
+      }
+      return atBook && opening.wanted && !opening.seek && bookChapter(opening) === to;
+    };
+
+    // Puts everything where `to` is. Only ever while it is black.
+    const place = (to: Section) => {
+      const now = timeRef.current;
+      resetGuide(guide);
+      // Each world's entrance plays again the next time the camera comes
+      // to it, as it does on the way through.
+      resetStationCues(frames);
+      if (to === "home" || to === "projects") {
+        eduE = 0;
+        resetBookOpening(opening, journey);
+        if (to === "home") {
+          placeDirector(director, 0, 0, 0, now, scrollHooks);
+        } else {
+          placeDirector(
+            director,
+            PROJECTS_FROM,
+            1,
+            scrollHooks.rawOf(1),
+            now,
+            scrollHooks
+          );
+        }
+        return;
+      }
+      // The book, made, and open at that chapter -- or on its way there,
+      // as soon as everything it needs to be seen there is ready.
+      placeDirector(
+        director,
+        director.last,
+        director.last,
+        scrollHooks.rawOf(director.last),
+        now,
+        scrollHooks
+      );
+      eduE = 1;
+      edu.handoff = null;
+      seekBookOpening(opening, to);
+    };
+
+    navigateRef.current = (to: Section) => {
+      if (!journey) return;
+      if (cut) {
+        // Sent somewhere else mid-cut: there instead, going back down to
+        // black first if it had begun to come up.
+        cut.to = to;
+        cut.phase = "in";
+        return;
+      }
+      if (isAt(to)) return;
+      // At the closed book, Education is just the book opening, as a click
+      // on it would open it.
+      if (
+        to === "education" &&
+        director.pos === director.last &&
+        director.target === director.last &&
+        eduE >= 1 &&
+        opening.t <= 0 &&
+        !opening.wanted &&
+        !opening.noGL
+      ) {
+        onBookClick();
+        return;
+      }
+      cut = { to, phase: "in", at: timeRef.current };
+      director.locked = true;
+      veil.dataset.busy = "true";
+    };
+
+    // Advances the cut by dt seconds; then shows the veil as it now is.
+    const tickCut = (dt: number) => {
+      if (cut) {
+        if (cut.phase === "in") {
+          veilA = Math.min(1, veilA + dt / CUT_IN_S);
+          if (veilA >= 1) {
+            place(cut.to);
+            cut.phase = "wait";
+            cut.at = timeRef.current;
+          }
+        } else if (cut.phase === "wait") {
+          if (!opening.seek || timeRef.current - cut.at > CUT_WAIT_MAX_S) {
+            // (Given up waiting: what there is is shown, and the book's
+            // clock goes on from where it got to.)
+            opening.seek = null;
+            cut.phase = "out";
+            cut.at = timeRef.current;
+          }
+        } else {
+          veilA = Math.max(0, veilA - dt / CUT_OUT_S);
+          if (veilA <= 0) {
+            cut = null;
+            director.locked = false;
+            veil.dataset.busy = "false";
+          }
+        }
+      }
+      const a = Math.round(veilA * veilA * (3 - 2 * veilA) * 1000) / 1000;
+      if (a !== veilShown) {
+        veilShown = a;
+        veil.style.opacity = String(a);
+        veil.style.visibility = a > 0 ? "visible" : "hidden";
+      }
+      const lit =
+        cut !== null &&
+        cut.phase === "wait" &&
+        timeRef.current - cut.at > CUT_LIGHT_S;
+      if (lit !== veilLit) {
+        veilLit = lit;
+        veil.dataset.lit = String(lit);
+      }
+    };
+
     window.addEventListener("resize", onResize);
 
     // Keeps rendering every frame (not just on scroll) so idle orbit/spin
@@ -1014,6 +1227,7 @@ export default function BannerParticlePortal({
     // forever after the user scrolls past the hero entirely.
     let isVisible = false;
     let atGateway = false;
+    let sectionSent: Section | null = null;
     const startTime = performance.now();
     let rafId = 0;
     let lastNow = startTime;
@@ -1021,6 +1235,9 @@ export default function BannerParticlePortal({
       timeRef.current = (now - startTime) / 1000;
       const dt = Math.min(0.05, Math.max(0, (now - lastNow) / 1000));
       lastNow = now;
+      // A cut from the menu, first: whatever it puts where, this frame is
+      // worked out from there.
+      tickCut(dt);
       // The book is made once the journey has come to rest at its last
       // stop, and unmade once the journey is sent back from it -- on its own
       // clock either way, eased, and never faster than it can be believed
@@ -1049,12 +1266,18 @@ export default function BannerParticlePortal({
       // Resting at the gateway, with the page there too (not scrolled back
       // up into the galaxy): the journey is waiting for its first scroll.
       const resting =
+        !cut &&
         director.pos === 0 &&
         director.target === 0 &&
         lastProgressRef.current >= LEGACY_SPAN - scrollHooks.px() * 3;
       if (resting !== atGateway) {
         atGateway = resting;
         onGatewayRef.current?.(resting);
+      }
+      const section = sectionNow();
+      if (section !== sectionSent) {
+        sectionSent = section;
+        onSectionRef.current?.(section);
       }
       if (revealedRef.current && isVisible) render(lastProgressRef.current);
       rafId = requestAnimationFrame(tick);
@@ -1070,6 +1293,7 @@ export default function BannerParticlePortal({
     visibilityObserver.observe(wrapper);
 
     return () => {
+      navigateRef.current = () => {};
       window.removeEventListener("resize", onResize);
       cancelAnimationFrame(resizeFrame);
       cancelAnimationFrame(rafId);
@@ -1130,6 +1354,12 @@ export default function BannerParticlePortal({
             : {})}
         />
       ))}
+      {/* The menu's cut to black, over all of it. If it has to wait in the
+          dark, a single warm light comes up in it -- the guide's -- to say
+          something is coming. */}
+      <div ref={veilRef} className={styles.veil} aria-hidden="true">
+        <span className={styles.veilLight} />
+      </div>
       {/* What the book's open pages say, for anything that cannot see them
           written: on the page it is ink in the paper, not text. */}
       {PAGES.map((page) => (

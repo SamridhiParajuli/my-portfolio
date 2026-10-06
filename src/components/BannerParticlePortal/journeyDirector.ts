@@ -153,6 +153,9 @@ export type Director = {
    *  from the moment the journey is sent there, it is the book's time: no
    *  input moves anything, nor is kept to move anything later. */
   bookFormed: boolean;
+  /** True while the menu is cutting to somewhere else: every scroll is
+   *  spent, and nothing but the cut moves the page. */
+  locked: boolean;
 
   /* --- this frame --- */
   /** The leg `pos` is on, and seconds into it. */
@@ -205,6 +208,7 @@ export function createDirector(): Director {
     own: [],
     canLeaveLast: true,
     bookFormed: false,
+    locked: false,
     leg: 0,
     tau: 0,
     camZ: 0,
@@ -299,6 +303,36 @@ function goTo(d: Director, k: number, hooks: ScrollHooks) {
   return true;
 }
 
+/**
+ * Puts the journey somewhere at once, for the menu: at `pos`, flying on to
+ * stop `target` at the pace of the leg it is on (or at rest, if they are
+ * the same), and the page at `raw`. A cut hides the move, so nothing is
+ * eased.
+ */
+export function placeDirector(
+  d: Director,
+  pos: number,
+  target: number,
+  raw: number,
+  now: number,
+  hooks: ScrollHooks
+) {
+  d.target = clamp(target, 0, d.last);
+  d.pos = clamp(pos, 0, d.last);
+  const want = Math.sign(d.target - d.pos);
+  if (want === 0) {
+    d.vel = 0;
+  } else {
+    const leg =
+      want > 0
+        ? Math.min(Math.floor(d.pos), d.last - 1)
+        : Math.max(Math.ceil(d.pos) - 1, 0);
+    d.vel = (want * (want > 0 ? 1 : REVERSE)) / d.legs[leg].dur;
+  }
+  d.arrivedAt = now;
+  rememberOwn(d, hooks.scrollTo(raw));
+}
+
 /** The page was scrolled by something other than a gesture this handles
  *  (the galaxy's own scroll running on past its end, a Home key, the
  *  browser restoring a position). */
@@ -309,6 +343,8 @@ function external(
   now: number,
   hooks: ScrollHooks
 ) {
+  // Mid-cut, the cut puts the page where it is going.
+  if (d.locked) return;
   // While the book is being made, nothing takes the journey anywhere: the
   // page goes back to it.
   if (makingBook(d)) {
@@ -454,8 +490,9 @@ function route(
   const idle = d.pos === d.target;
   // From the scroll that sent it to the book until the book stands formed,
   // every scroll is the book's: it neither hurries it, nor turns it back,
-  // nor carries on past it once it is made.
-  if (makingBook(d)) {
+  // nor carries on past it once it is made. Likewise every scroll during a
+  // cut from the menu.
+  if (d.locked || makingBook(d)) {
     g.spent = true;
     return true;
   }

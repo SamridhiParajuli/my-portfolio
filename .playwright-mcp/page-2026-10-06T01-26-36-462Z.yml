@@ -1,0 +1,76 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - generic:
+      - generic [aria-hidden]:
+        - generic: A collage of small personal photographs arranging into a single row
+      - paragraph: A collection of what I've learned, built, and loved along the way.
+    - generic:
+      - region "Education":
+        - heading "Education" [level=2]
+        - list:
+          - listitem: Bachelor of Computer Science and Engineering, Vellore Institute of Technology, India
+          - listitem: Ontario Graduate Certificate in Full Stack Software Development, Lambton College, Canada
+      - region "Certifications":
+        - heading "Certifications" [level=2]
+        - list:
+          - listitem: Introduction to Artificial Intelligence
+          - listitem: "Artificial Intelligence Foundations: Neural Networks"
+      - region "Experience":
+        - heading "Experience" [level=2]
+        - list:
+          - listitem: Software Engineering Intern, IME Digital, Nepal
+          - listitem: IT & Retail Support — Co-op, Summerhill Market, Canada
+      - region "Contact":
+        - heading "Contact" [level=2]
+        - list:
+          - listitem: "Email: samridhiii.parajuli@gmail.com"
+          - listitem: "Phone: 647 674 5490"
+          - listitem: "LinkedIn: linkedin.com/in/SamridhiParajuli"
+          - listitem: "GitHub: github.com/SamridhiParajuli"
+    - generic:
+      - heading "Samridhi Parajuli" [level=1] [ref=e3]
+      - paragraph [ref=e4]:
+        - generic [ref=e5]: Computer Science × Software Development × AI
+        - text: Computer Science × Software Development × AI
+    - generic [aria-hidden]:
+      - generic: Scroll
+    - generic [aria-hidden]:
+      - generic: The work lies beyond
+      - generic:
+        - generic: Scroll,
+        - generic: and
+        - generic: follow
+        - generic: the
+        - generic: light
+    - generic:
+      - button "Close" [expanded] [ref=e25] [cursor=pointer]:
+        - generic [aria-hidden] [ref=e22]: "00"
+      - navigation "Primary" [ref=e27]:
+        - list [ref=e29]:
+          - listitem [ref=e30]:
+            - link "01 Home" [active] [ref=e31] [cursor=pointer]:
+              - /url: "#home"
+              - generic [ref=e32]: "01"
+              - generic [ref=e33]: Home
+          - listitem [ref=e34]:
+            - link "02 Projects" [ref=e35] [cursor=pointer]:
+              - /url: "#projects"
+              - generic [ref=e36]: "02"
+              - generic [ref=e37]: Projects
+          - listitem [ref=e38]:
+            - link "03 Education & Certificates" [ref=e39] [cursor=pointer]:
+              - /url: "#education"
+              - generic [ref=e40]: "03"
+              - generic [ref=e41]: Education & Certificates
+          - listitem [ref=e42]:
+            - link "04 Experience" [ref=e43] [cursor=pointer]:
+              - /url: "#experience"
+              - generic [ref=e44]: "04"
+              - generic [ref=e45]: Experience
+          - listitem [ref=e46]:
+            - link "05 Contact" [ref=e47] [cursor=pointer]:
+              - /url: "#contact"
+              - generic [ref=e48]: "05"
+              - generic [ref=e49]: Contact
+  - button "Open Next.js Dev Tools" [ref=e12] [cursor=pointer]
+  - alert [ref=e24]

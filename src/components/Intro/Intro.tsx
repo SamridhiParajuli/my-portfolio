@@ -13,7 +13,10 @@ import PaperBallAnimation, {
   type PhotoHandoff,
 } from "@/components/PaperBallAnimation/PaperBallAnimation";
 import Caption from "@/components/Caption/Caption";
-import BannerParticlePortal from "@/components/BannerParticlePortal/BannerParticlePortal";
+import BannerParticlePortal, {
+  type PortalHandle,
+} from "@/components/BannerParticlePortal/BannerParticlePortal";
+import type { Section } from "@/components/Navigation/sections";
 import styles from "./Intro.module.css";
 
 const SKETCH_OPACITY = 0.8;
@@ -32,6 +35,11 @@ export default function Intro() {
   // True while the journey rests at the galaxy's opening, waiting for the
   // scroll that starts it -- when GatewayCue says what to do there.
   const [atGateway, setAtGateway] = useState(false);
+  // Which part of the journey it is in (the banner, the worlds, the book's
+  // chapters) -- what the menu marks, and whether it is the corner one or
+  // the bar across the top -- and how the menu sends it somewhere else.
+  const [section, setSection] = useState<Section>("home");
+  const portalRef = useRef<PortalHandle>(null);
 
   // Scrolling only makes sense once the banner has actually settled into
   // its final, flat form -- the particle portal below assumes that settled
@@ -96,9 +104,11 @@ export default function Intro() {
         onBannerRevealed={() => setBannerRevealed(true)}
       />
       <BannerParticlePortal
+        ref={portalRef}
         revealed={bannerRevealed}
         pinRef={introRef}
         onGateway={setAtGateway}
+        onSection={setSection}
       />
       <div className={styles.content}>
         <Name compact={bannerRevealed} />
@@ -106,7 +116,11 @@ export default function Intro() {
       </div>
       <ScrollCue revealed={bannerRevealed} />
       <GatewayCue shown={atGateway} />
-      <Navigation revealed={bannerRevealed} />
+      <Navigation
+        revealed={bannerRevealed}
+        section={section}
+        onNavigate={(to) => portalRef.current?.navigate(to)}
+      />
     </section>
   );
 }

@@ -108,6 +108,7 @@ import {
   GRIP_LOCAL,
   CONTACT_AT,
   STAGE_END,
+  TAKE,
   birdHolds,
   clearFinale,
   createFinale,
@@ -443,6 +444,9 @@ export type BookOpening = {
   /** The clock, and whether it is running forward. */
   t: number;
   wanted: boolean;
+  /** The chapter the menu has cut to, while the clock is still being put
+   *  there (see seekBookOpening); null otherwise. */
+  seek: BookChapter | null;
   hovering: boolean;
   hover: number;
   cssW: number;
@@ -559,6 +563,7 @@ export function createBookOpening(): BookOpening {
     },
     t: 0,
     wanted: false,
+    seek: null,
     hovering: false,
     hover: 0,
     cssW: 0,
@@ -917,6 +922,41 @@ export function requestBookOpen(o: BookOpening) {
   o.wanted = true;
 }
 
+/** What the book is showing, as the menu names it. */
+export type BookChapter = "education" | "experience" | "contact";
+
+/** Where on the clock the menu cuts to for each chapter: the spread lying
+ *  open and blank, about to be written; the leaf coming down over the
+ *  page Experience is written on; the scroll unrolling, a moment before
+ *  Contact is written on it. Infinity until it can be known (the spread
+ *  not yet set). */
+function chapterAt(o: BookOpening, chapter: BookChapter) {
+  if (chapter === "education") return OPEN_END;
+  if (!o.ink) return Infinity;
+  if (chapter === "experience") return OPEN_END + o.ink.turnEnd - 0.6;
+  return OPEN_END + o.ink.span + CONTACT_AT - 2;
+}
+
+/** The chapter the book is at now (a closed book is Education's). */
+export function bookChapter(o: BookOpening): BookChapter {
+  if (!o.ink) return "education";
+  if (finC(o, o.t) >= TAKE) return "contact";
+  if (o.t - OPEN_END >= o.ink.turnAt + TURN_DUR / 2) return "experience";
+  return "education";
+}
+
+/**
+ * The menu: open the book (if it is not) and put the clock at `chapter`,
+ * forward or back. It is put there at once, as far as what has been made
+ * ready allows, and waits on the rest at the same points the clock always
+ * waits at -- the cut that hides it lifts once it is there (`o.seek` null).
+ */
+export function seekBookOpening(o: BookOpening, chapter: BookChapter) {
+  if (o.noGL) return;
+  o.wanted = true;
+  o.seek = chapter;
+}
+
 /**
  * Advances the clock. `eduE` is how formed the book is, `eduTarget` how
  * formed the scroll wants it. True while the book must be held formed --
@@ -943,6 +983,20 @@ export function tickBookOpening(
       work(o, b, 24);
     }
     let next = o.t + dt * paceAt(o.t);
+    if (o.seek) {
+      const at = chapterAt(o, o.seek);
+      if (at < o.t) {
+        // Back to an earlier chapter: at once, and what was let go on the
+        // way here goes with it.
+        o.t = at;
+        o.seek = null;
+        o.dust.length = 0;
+        clearFinale(o.fin);
+        o.links.fill(null);
+        return true;
+      }
+      next = at;
+    }
     if (!ready(o)) next = Math.min(next, WAIT_AT);
     // It lies open, still, until the spread can be written.
     if (!pageReady(o)) next = Math.min(next, OPEN_END);
@@ -954,6 +1008,7 @@ export function tickBookOpening(
         ? pageEnd + finaleSpan(o.contact.span)
         : pageEnd;
     o.t = Math.min(end, next);
+    if (o.seek && o.t >= chapterAt(o, o.seek)) o.seek = null;
   } else if (o.t > 0) {
     const pageEnd = OPEN_END + (o.ink ? o.ink.span : 0);
     const rate =
@@ -1012,6 +1067,7 @@ export function bookHitRect(
 export function resetBookOpening(o: BookOpening, w: JourneyWorld | null) {
   o.t = 0;
   o.wanted = false;
+  o.seek = null;
   o.hover = 0;
   o.dust.length = 0;
   clearFinale(o.fin);
