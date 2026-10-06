@@ -10,14 +10,20 @@
  * the bottom of the fall where the Education book is made -- and ONE scroll
  * (a wheel gesture, a swipe, an arrow key) sends it on to the next one. What
  * happens between two of them runs on a clock of its own: the scroll only
- * says where to go, never how fast to get there.
+ * says where to go, never how fast to get there -- nor how far. However hard
+ * or long the scroll, it is one stop: what is still coming in when the
+ * camera gets there was the scroll that sent it, and it takes a fresh one to
+ * go on.
  *
  *   stop 0   the gateway. One scroll, and a single mote of the galaxy comes
  *            loose, comes toward the viewer, and leads the camera off after
  *            it, in through the horizon (see guideParticle);
  *   1 .. 5   the worlds, one per stop (HOLDS in projects);
- *   6        the rest at the bottom of the fall. The scroll takes over again
- *            from here, and builds the book.
+ *   6        the rest at the bottom of the fall, where the guide becomes the
+ *            seed of the Education book. The scroll that sends it here is
+ *            all it takes: once the camera is at rest the book makes itself,
+ *            start to finish, and until it stands formed no scroll moves
+ *            anything (see bookFormed).
  *
  * All the motion is a function of one number, `pos` -- how far along the
  * stops the journey is, 2.5 being halfway from the second world to the
@@ -86,9 +92,15 @@ const REVERSE = 1.35;
  *  camera is brought about rather than whipped back. */
 const VEL_TAU = 0.2;
 const TURN_TAU = 0.5;
-/** Seconds after coming to rest before a scroll can send it on again, so
- *  the tail of the gesture that brought it here cannot. */
+/** Seconds after coming to rest before a scroll can send it on again. A
+ *  gesture begun before then -- the tail of the one that brought it here,
+ *  or one begun in flight -- belongs to this stop, and is spent. */
 const ARRIVE_LOCK = 0.45;
+/** Seconds the input must have been still before a gesture that sends it
+ *  on. Gestures are told apart by a far shorter gap (GESTURE_GAP), so a
+ *  hard scroll on a wheel -- flick after flick -- is many of them; this
+ *  keeps it the one scroll it is meant as. */
+const REARM = 0.7;
 /** The motion streaks' shutter, in seconds: how far back along its own
  *  motion the camera the streaks are drawn from was. */
 const SHUTTER = 1 / 140;
@@ -137,6 +149,10 @@ export type Director = {
   own: number[];
   /** False while it may not leave the last stop (the book is still there). */
   canLeaveLast: boolean;
+  /** True once the book stands fully formed at the last stop. Until then,
+   *  from the moment the journey is sent there, it is the book's time: no
+   *  input moves anything, nor is kept to move anything later. */
+  bookFormed: boolean;
 
   /* --- this frame --- */
   /** The leg `pos` is on, and seconds into it. */
@@ -188,6 +204,7 @@ export function createDirector(): Director {
     lastRaw: 0,
     own: [],
     canLeaveLast: true,
+    bookFormed: false,
     leg: 0,
     tau: 0,
     camZ: 0,
@@ -268,6 +285,11 @@ function isOwn(d: Director, raw: number, eps: number) {
   return false;
 }
 
+/** On its way to the book, or there with the book still being made. */
+function makingBook(d: Director) {
+  return d.target === d.last && !d.bookFormed;
+}
+
 /** Sends it to stop `k`, and puts the page there. */
 function goTo(d: Director, k: number, hooks: ScrollHooks) {
   const next = clamp(k, 0, d.last);
@@ -278,8 +300,21 @@ function goTo(d: Director, k: number, hooks: ScrollHooks) {
 }
 
 /** The page was scrolled by something other than a gesture this handles
- *  (the scrollbar, a Home key, the browser restoring a position). */
-function external(d: Director, prev: number, raw: number, hooks: ScrollHooks) {
+ *  (the galaxy's own scroll running on past its end, a Home key, the
+ *  browser restoring a position). */
+function external(
+  d: Director,
+  prev: number,
+  raw: number,
+  now: number,
+  hooks: ScrollHooks
+) {
+  // While the book is being made, nothing takes the journey anywhere: the
+  // page goes back to it.
+  if (makingBook(d)) {
+    rememberOwn(d, hooks.scrollTo(hooks.rawOf(d.target)));
+    return;
+  }
   const r0 = hooks.rawOf(0);
   const span = hooks.rawOf(1) - r0;
   const s = (raw - r0) / span;
@@ -298,11 +333,15 @@ function external(d: Director, prev: number, raw: number, hooks: ScrollHooks) {
     d.vel = 0;
     return;
   }
-  // Coasting a little way in from either end is not a scroll *to*
-  // anything: the camera waits at the gateway (or the bottom) for one.
-  if (sp < 0 && d.target === 0 && s < 1.5) return;
-  if (sp > d.last && d.target === d.last && s > d.last - 1.5) return;
-  if (Math.abs(s - d.target) >= 0.5) d.target = clamp(Math.round(s), 0, d.last);
+  // Among the stops, nothing but a gesture moves the journey. A hard flick
+  // through the galaxy can carry the page screens past its end before its
+  // wheel events are turned away (the browser runs them out smoothly); that
+  // is the scroll that reached the gateway, not one past it. So whatever
+  // brought the page here, the journey stays at the stop it is at or going
+  // to -- coming to rest there, if it came in from either end -- and the
+  // page goes back to it.
+  if (sp < -tiny || sp > d.last + tiny) d.arrivedAt = now;
+  rememberOwn(d, hooks.scrollTo(hooks.rawOf(d.target)));
 }
 
 /**
@@ -327,7 +366,7 @@ export function updateDirector(
   } else if (raw !== d.lastRaw) {
     const prev = d.lastRaw;
     d.lastRaw = raw;
-    if (!isOwn(d, raw, eps)) external(d, prev, raw, hooks);
+    if (!isOwn(d, raw, eps)) external(d, prev, raw, now, hooks);
   }
 
   const want = Math.sign(d.target - d.pos);
@@ -337,10 +376,7 @@ export function updateDirector(
       want > 0
         ? Math.min(Math.floor(d.pos), d.last - 1)
         : Math.max(Math.ceil(d.pos) - 1, 0);
-    let rate = (want > 0 ? 1 : REVERSE) / d.legs[leg].dur;
-    // A jump of several stops (the scrollbar) is flown faster.
-    const gap = Math.abs(d.target - d.pos);
-    if (gap > 1.001) rate *= Math.min(3, gap);
+    const rate = (want > 0 ? 1 : REVERSE) / d.legs[leg].dur;
     const tau = d.vel * want < 0 ? TURN_TAU : VEL_TAU;
     d.vel += (want * rate - d.vel) * (1 - Math.exp(-dt / tau));
     d.pos = clamp(d.pos + d.vel * dt, 0, d.last);
@@ -384,17 +420,22 @@ export function updateDirector(
 
 type Gesture = {
   dir: number;
-  /** It has sent the camera somewhere; the rest of it is spent. */
+  /** Clock time (s) it began, and how long all input had been still
+   *  before it did (s). */
+  began: number;
+  quiet: number;
+  /** It has sent the camera somewhere, or was the scroll that brought it
+   *  to a stop; the rest of it is spent. */
   spent: boolean;
   /** It was scrolling the page natively when it arrived at a stop (it
-   *  came from the galaxy, or from the book) -- so it stops there. */
+   *  came from the galaxy) -- so it stops there. */
   native: boolean;
   /** It was let through at an end stop to scroll on past it. */
   release: boolean;
 };
 
-function gesture(dir: number): Gesture {
-  return { dir, spent: false, native: false, release: false };
+function gesture(dir: number, began: number, quiet: number): Gesture {
+  return { dir, began, quiet, spent: false, native: false, release: false };
 }
 
 /**
@@ -411,7 +452,14 @@ function route(
   const raw = hooks.raw();
   const eps = hooks.px() * 2;
   const idle = d.pos === d.target;
-  // Above the gateway, or down among the book: the page's own scroll.
+  // From the scroll that sent it to the book until the book stands formed,
+  // every scroll is the book's: it neither hurries it, nor turns it back,
+  // nor carries on past it once it is made.
+  if (makingBook(d)) {
+    g.spent = true;
+    return true;
+  }
+  // Above the gateway, or past the last stop: the page's own scroll.
   if (
     (idle && d.target === 0 && raw < hooks.rawOf(0) - eps) ||
     (idle && d.target === d.last && raw > hooks.rawOf(d.last) + eps)
@@ -429,7 +477,13 @@ function route(
     }
     return true;
   }
-  if (now - d.arrivedAt < ARRIVE_LOCK) return true;
+  // At rest at a stop. Whatever was already under way when it got here, or
+  // follows hard on the heels of more input, is the scroll that brought it
+  // here: it goes no further -- not on, nor out past either end.
+  if (g.began < d.arrivedAt + ARRIVE_LOCK || g.quiet < REARM) {
+    g.spent = true;
+    return true;
+  }
   // At either end, a scroll outward is the page's again.
   if ((g.dir > 0 && d.target === d.last) || (g.dir < 0 && d.target === 0)) {
     g.release = true;
@@ -445,6 +499,12 @@ export function attachDirector(
   hooks: ScrollHooks,
   clock: () => number
 ) {
+  // When the last scroll input of any kind came (ms), so that a gesture
+  // knows how long everything had been still before it.
+  let inputAt = -1e9;
+  const begin = (dir: number, ms: number) =>
+    gesture(dir, clock(), (ms - inputAt) / 1000);
+
   let wheelG: Gesture | null = null;
   let wheelAt = -1e9;
 
@@ -460,9 +520,9 @@ export function attachDirector(
     const dir = dy > 0 ? 1 : -1;
     const ms = performance.now();
     if (!wheelG || ms - wheelAt > GESTURE_GAP || dir !== wheelG.dir) {
-      wheelG = gesture(dir);
+      wheelG = begin(dir, ms);
     }
-    wheelAt = ms;
+    wheelAt = inputAt = ms;
     if (route(d, wheelG, clock(), hooks, true)) e.preventDefault();
   };
 
@@ -480,13 +540,15 @@ export function attachDirector(
     if (e.touches.length !== 1) return;
     const dy = touchY - e.touches[0].clientY;
     const dx = touchX - e.touches[0].clientX;
+    const ms = performance.now();
     if (!touchG) {
       if (dy === 0 || Math.abs(dy) < Math.abs(dx)) return;
       // Decided on its first move, since that is when the browser decides
       // whether it is a scroll.
-      touchG = gesture(dy > 0 ? 1 : -1);
+      touchG = begin(dy > 0 ? 1 : -1, ms);
       touchOwned = route(d, touchG, clock(), hooks, false);
     }
+    inputAt = ms;
     if (!touchOwned) return;
     e.preventDefault();
     if (!touchG.spent && Math.abs(dy) >= SWIPE_MIN) {
@@ -511,7 +573,9 @@ export function attachDirector(
     else if (e.key === "ArrowUp" || e.key === "PageUp") dir = -1;
     else if (e.key === " ") dir = e.shiftKey ? -1 : 1;
     if (!dir) return;
-    if (!e.repeat || !keyG || keyG.dir !== dir) keyG = gesture(dir);
+    const ms = performance.now();
+    if (!e.repeat || !keyG || keyG.dir !== dir) keyG = begin(dir, ms);
+    inputAt = ms;
     if (route(d, keyG, clock(), hooks, true)) e.preventDefault();
   };
 

@@ -1,0 +1,178 @@
+.cue {
+  /* Bottom-centre of the hero, inside the pinned section so it rides along
+     with the banner rather than floating over the page. Hidden by default,
+     and quick to step aside the moment the journey starts. */
+  position: absolute;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + clamp(1.25rem, 4vh, 2.25rem));
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  transform: translateX(-50%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+
+.cue[data-shown="true"] {
+  /* Arrives last: after Name has settled into the corner and Menu has
+     faded in, so it reads as the scene's final beat, not as chrome. */
+  opacity: 1;
+  transition: opacity 1.4s ease 1.4s;
+}
+
+/* The foot of the frame dims a little around the cue -- a vignette, not a
+   shape -- so the light has darkness to glow against over the pale prints
+   and warm wood of the desk. */
+.cue::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  left: 50%;
+  bottom: -3.5rem;
+  width: 360px;
+  height: 260px;
+  transform: translateX(-50%);
+  background: radial-gradient(
+    ellipse 50% 50% at 50% 62%,
+    rgba(12, 8, 5, 0.62),
+    rgba(12, 8, 5, 0.34) 45%,
+    rgba(12, 8, 5, 0) 100%
+  );
+}
+
+/* The same dim, tracked mono as Menu's "00" index -- the page's own small
+   print, not a headline. */
+.label {
+  /* Tracking adds trailing space after the last letter; matching it on the
+     left keeps the word optically centred over the thread. */
+  padding-left: 0.34em;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.64rem;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: rgba(244, 230, 211, 0.82);
+  text-shadow: 0 1px 8px rgba(20, 14, 10, 0.7);
+}
+
+.track {
+  position: relative;
+  width: 18px;
+  height: 64px;
+}
+
+/* The path the mote falls along: a hairline that dissolves at both ends. */
+.thread {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: linear-gradient(
+    to bottom,
+    rgba(244, 230, 211, 0),
+    rgba(244, 230, 211, 0.55) 22%,
+    rgba(244, 230, 211, 0.55) 70%,
+    rgba(244, 230, 211, 0.1)
+  );
+}
+
+/* The spark itself: the same layered glow the galaxy's dust is drawn
+   with (bright core, warm halo), in Menu's cream and amber. */
+.mote {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 7px;
+  height: 7px;
+  margin-left: -3.5px;
+  border-radius: 50%;
+  background: #fffaf0;
+  box-shadow: 0 0 6px 2px rgba(255, 240, 220, 0.95),
+    0 0 18px 6px rgba(232, 185, 118, 0.55);
+  opacity: 0;
+  animation: descend 2.8s infinite;
+}
+
+/* A streak trailing above it, so the eye reads a fall, not a blink. */
+.mote::before {
+  content: "";
+  position: absolute;
+  bottom: 50%;
+  left: 50%;
+  width: 1.5px;
+  height: 24px;
+  transform: translateX(-50%);
+  background: linear-gradient(
+    to bottom,
+    rgba(255, 240, 215, 0),
+    rgba(255, 240, 215, 0.85)
+  );
+}
+
+/* Where the fall ends: a fine open chevron that catches the light as the
+   spark reaches it. */
+.chevron {
+  width: 11px;
+  height: 11px;
+  margin-top: -0.85rem;
+  border-right: 1.5px solid rgba(244, 230, 211, 0.95);
+  border-bottom: 1.5px solid rgba(244, 230, 211, 0.95);
+  transform: rotate(45deg);
+  opacity: 0.5;
+  filter: drop-shadow(0 0 3px rgba(232, 185, 118, 0.5));
+  animation: land 2.8s infinite;
+}
+
+/* Gathers at the top of the thread, glides down it lit the whole way, and
+   sinks into the chevron -- then rests a beat before the next. */
+@keyframes descend {
+  0% {
+    transform: translateY(0) scale(0.5);
+    opacity: 0;
+    animation-timing-function: cubic-bezier(0.37, 0, 0.63, 1);
+  }
+  10% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 1;
+  }
+  60% {
+    transform: translateY(58px) scale(0.8);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(58px) scale(0.8);
+    opacity: 0;
+  }
+}
+
+/* In step with the fall: brightens and dips a hair as the spark lands. */
+@keyframes land {
+  0%,
+  48% {
+    opacity: 0.5;
+    transform: translateY(0) rotate(45deg);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(3px) rotate(45deg);
+  }
+  85%,
+  100% {
+    opacity: 0.5;
+    transform: translateY(0) rotate(45deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Reduced motion leaves the settled banner alone with no journey to
+     scroll into (see BannerParticlePortal), so there is nothing to cue. */
+  .cue {
+    display: none;
+  }
+}

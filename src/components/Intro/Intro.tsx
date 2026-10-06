@@ -6,6 +6,8 @@ import gsap from "gsap";
 import Name from "@/components/Name/Name";
 import Tagline from "@/components/Tagline/Tagline";
 import Navigation from "@/components/Navigation/Navigation";
+import ScrollCue from "@/components/ScrollCue/ScrollCue";
+import GatewayCue from "@/components/GatewayCue/GatewayCue";
 import PhotoLaptopAnimation from "@/components/PhotoLaptopAnimation/PhotoLaptopAnimation";
 import PaperBallAnimation, {
   type PhotoHandoff,
@@ -27,6 +29,9 @@ export default function Intro() {
   // Flips true once banner.png has fully unfolded to fill the hero — the
   // signal the rest of the intro chrome (tagline, name) retires on.
   const [bannerRevealed, setBannerRevealed] = useState(false);
+  // True while the journey rests at the galaxy's opening, waiting for the
+  // scroll that starts it -- when GatewayCue says what to do there.
+  const [atGateway, setAtGateway] = useState(false);
 
   // Scrolling only makes sense once the banner has actually settled into
   // its final, flat form -- the particle portal below assumes that settled
@@ -90,11 +95,17 @@ export default function Intro() {
         captionRef={captionRef}
         onBannerRevealed={() => setBannerRevealed(true)}
       />
-      <BannerParticlePortal revealed={bannerRevealed} pinRef={introRef} />
+      <BannerParticlePortal
+        revealed={bannerRevealed}
+        pinRef={introRef}
+        onGateway={setAtGateway}
+      />
       <div className={styles.content}>
         <Name compact={bannerRevealed} />
         <Tagline hide={bannerRevealed} />
       </div>
+      <ScrollCue revealed={bannerRevealed} />
+      <GatewayCue shown={atGateway} />
       <Navigation revealed={bannerRevealed} />
     </section>
   );

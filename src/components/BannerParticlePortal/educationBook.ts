@@ -27,7 +27,9 @@
  *   0.66  the seed reaches the middle, and sinks into the cover;
  *   0.92  the last grains land, the surface closes, the heat goes out;
  *   1.00  a closed book, floating. It stays closed until it is clicked;
- *         opening it is bookOpening's, which takes over from here.
+ *         opening it is bookOpening's, which takes over from here. Left
+ *         alone, it lies still a moment, then stirs -- lifts a little in a
+ *         breath of warm light, and settles -- a few times, then no more.
  *
  * There is no frame at which the book appears. Until a grain has landed on
  * a point of its surface, that point is not there.
@@ -78,6 +80,18 @@ const SPLAT_CLOSE = 2.1;
 /** Resolution of the coverage mask, per CSS px. */
 const MASK_S = 1;
 
+/** Once it has settled, the book stirs, as if it knew it was looked at:
+ *  seconds it lies still first; each stir's length, and the pause after
+ *  it; how far each lifts (of the viewport's height) -- one fewer each
+ *  time, and then never again until it is made anew; how far it tips as it
+ *  goes (radians, at its fastest); and the warm light it gives then. */
+const STIR_HOLD = 1.6;
+const STIR_S = 1.8;
+const STIR_GAP = 1.3;
+const STIR_LIFT = [0.017, 0.0135, 0.0105] as const;
+const STIR_TIP = 0.0042;
+const STIR_GLOW = 0.17;
+
 /* ------------------------------------------------------------------ *
  * Colour (all through the journey's own sprite bank)
  * ------------------------------------------------------------------ */
@@ -121,6 +135,10 @@ function span(x: number, a: number, b: number) {
 
 function easeInOutCubic(x: number) {
   return x < 0.5 ? 4 * x * x * x : 1 - (-2 * x + 2) ** 3 / 2;
+}
+
+function easeInOutSine(x: number) {
+  return 0.5 - 0.5 * Math.cos(Math.PI * x);
 }
 
 function makeRng(seed: number) {
@@ -207,6 +225,11 @@ export type EduBook = {
   splat: HTMLCanvasElement | null;
   idle: number;
   idleKind: "idle" | "timeout" | null;
+  /** When it came to rest, formed (NaN while it is not), and when it was
+   *  asked to open (NaN until it is): its stirs are timed from the one,
+   *  and quieted from the other. */
+  restAt: number;
+  stirEnd: number;
 };
 
 export function createEduBook(): EduBook {
@@ -240,6 +263,8 @@ export function createEduBook(): EduBook {
     splat: null,
     idle: 0,
     idleKind: null,
+    restAt: NaN,
+    stirEnd: NaN,
   };
 }
 
@@ -596,17 +621,61 @@ function seedPath(b: EduBook, e: number, out: { x: number; y: number }) {
  * Drawing
  * ------------------------------------------------------------------ */
 
+/** One stir, `s` seconds into it, 0 outside it: up, unhurried; back down a
+ *  hair past where it was, as the air under it takes its weight; settled. */
+function stirShape(s: number) {
+  if (s <= 0 || s >= STIR_S) return 0;
+  if (s < 0.62) return easeInOutSine(s / 0.62);
+  if (s < 1.38) return lerp(1, -0.12, easeInOutSine((s - 0.62) / 0.76));
+  return lerp(-0.12, 0, easeInOutSine((s - 1.38) / 0.42));
+}
+
+const STIR = { lift: 0, tip: 0, glow: 0 };
+
+/** How it is stirring at `time`: lifted by so many CSS px, tipped by so
+ *  many radians, and the light it gives, 0..1. All 0 once it has stirred
+ *  its last, and quieted at once (in half a second) when it is opened. */
+function stirAt(b: EduBook, time: number) {
+  STIR.lift = 0;
+  STIR.tip = 0;
+  STIR.glow = 0;
+  if (Number.isNaN(b.restAt)) return STIR;
+  const quiet = Number.isNaN(b.stirEnd)
+    ? 1
+    : 1 - smoothstep(b.stirEnd, b.stirEnd + 0.5, time);
+  let s = time - b.restAt - STIR_HOLD;
+  if (quiet <= 0 || s <= 0) return STIR;
+  const n = Math.floor(s / (STIR_S + STIR_GAP));
+  if (n >= STIR_LIFT.length) return STIR;
+  s -= n * (STIR_S + STIR_GAP);
+  const up = STIR_LIFT[n];
+  // It leans a little into the way it is going: up, and back.
+  const v = (stirShape(s + 0.06) - stirShape(s - 0.06)) / 0.12;
+  STIR.lift = stirShape(s) * up * b.cssH * quiet;
+  STIR.tip = v * STIR_TIP * b.side * quiet;
+  STIR.glow =
+    smoothstep(0, 0.55, s) *
+    (1 - smoothstep(0.9, STIR_S + 0.6, s)) *
+    (up / STIR_LIFT[0]) *
+    quiet;
+  return STIR;
+}
+
 /**
  * Where the finished book floats, and how: the same slow bob and least sway
  * drawEduBook gives it once it has come together, scaled by `calm` (1 is
- * its usual float, 0 perfectly still). CSS px, radians, and the art's scale.
+ * its usual float, 0 perfectly still) -- and its stirs, likewise. CSS px,
+ * radians, and the art's scale.
  */
 export function eduRestFrame(b: EduBook, time: number, calm: number) {
   const art = b.art;
+  const st = stirAt(b, time);
   return {
     x: REST_AT[0] * b.cssW,
-    y: REST_AT[1] * b.cssH + Math.sin(time * 0.62) * b.cssH * 0.0075 * calm,
-    rot: Math.sin(time * 0.41 + 1.3) * 0.011 * calm,
+    y:
+      REST_AT[1] * b.cssH +
+      (Math.sin(time * 0.62) * b.cssH * 0.0075 - st.lift) * calm,
+    rot: (Math.sin(time * 0.41 + 1.3) * 0.011 + st.tip) * calm,
     k: art ? b.bookPx / art.bookPx : 1,
   };
 }
@@ -719,6 +788,14 @@ export function drawEduBook(
   time: number,
   ov?: EduOverride | null
 ) {
+  // Its stirs are had once each time it is made, and only until it is opened.
+  if (e < 1) {
+    b.restAt = NaN;
+    b.stirEnd = NaN;
+  } else if (Number.isNaN(b.restAt)) {
+    b.restAt = time;
+  }
+  if (ov && Number.isNaN(b.stirEnd)) b.stirEnd = time;
   if (e <= 0) {
     if (b.cued) release(b, w);
     return;
@@ -753,13 +830,15 @@ export function drawEduBook(
   const seedX = lerp(liveX, SP.x, away);
   const seedY = lerp(liveY, SP.y, away);
 
-  // Once it has come together it floats: a slow bob and the least sway.
+  // Once it has come together it floats: a slow bob and the least sway --
+  // and, settled, it stirs (see eduRestFrame, which this must agree with).
   const float = smoothstep(0.55, 1, e) * (ov ? ov.calm : 1);
-  const bob = Math.sin(time * 0.62) * H * 0.0075 * float;
+  const stir = stirAt(b, time);
+  const bob = (Math.sin(time * 0.62) * H * 0.0075 - stir.lift) * float;
   // It turns into its pose as it forms, like something coming to rest.
   const rot =
     (1 - smoothstep(0.22, 0.92, e)) * 0.085 * b.side +
-    Math.sin(time * 0.41 + 1.3) * 0.011 * float;
+    (Math.sin(time * 0.41 + 1.3) * 0.011 + stir.tip) * float;
   const cx = seedX;
   const cy = seedY + bob;
   const cr = Math.cos(rot) * k;
@@ -780,6 +859,26 @@ export function drawEduBook(
     ctx.globalAlpha = 1;
     ctx.fillStyle = g;
     ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
+  }
+  // As it stirs, a breath of the golden light it will wake into when it is
+  // opened, round its edges, in its own shape.
+  const sg = STIR_GLOW * stir.glow;
+  if (sg > 0.003 && !ov) {
+    const rx = art.w * k * 0.86 * 0.85;
+    const ry = art.h * k * 0.9 * 0.85;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(rot);
+    ctx.scale(rx / ry, 1);
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, ry);
+    g.addColorStop(0, `rgba(255,190,112,${sg.toFixed(4)})`);
+    g.addColorStop(0.5, `rgba(240,166,92,${(sg * 0.9).toFixed(4)})`);
+    g.addColorStop(0.72, `rgba(190,110,64,${(sg * 0.4).toFixed(4)})`);
+    g.addColorStop(1, "rgba(80,40,40,0)");
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = g;
+    ctx.fillRect(-ry, -ry, ry * 2, ry * 2);
+    ctx.restore();
   }
 
   /* --- the grains --- */
@@ -871,7 +970,7 @@ export function drawEduBook(
 
     // Far side of the swirl: under the book.
     if (Math.sin(th) < 0 && land < 0.6) {
-      drawGrain(ctx, w, g, local, x, y, pal);
+      drawGrain(ctx, w, g, local, x, y, pal, 0, g.target < 0 ? stir.glow : 0);
     } else {
       front[frontN++] = n;
     }
@@ -950,7 +1049,8 @@ export function drawEduBook(
     const n = front[f];
     const g = grains[n];
     const drawnIn = ov && g.target < 0 ? haloGather(n, ov.gather) : 0;
-    drawGrain(ctx, w, g, span(e, g.b, g.b + g.d), pos[n * 2], pos[n * 2 + 1], pal, drawnIn);
+    const wake = g.target < 0 ? stir.glow : 0;
+    drawGrain(ctx, w, g, span(e, g.b, g.b + g.d), pos[n * 2], pos[n * 2 + 1], pal, drawnIn, wake);
   }
 
   /* --- the seed, over all of it until it sinks into the cover --- */
@@ -993,12 +1093,17 @@ function drawGrain(
   x: number,
   y: number,
   pal: number[],
-  drawnIn = 0
+  drawnIn = 0,
+  wake = 0
 ) {
   const sprites = w.bank.sprites;
   // A halo grain being drawn in to the opening book warms, brightens as it
-  // closes, and goes into its light.
-  const heat = g.target >= 0 ? smoothstep(0.62, 1, local) : smoothstep(0.2, 0.85, drawnIn);
+  // closes, and goes into its light -- and catches a little of it, warming,
+  // while the book stirs (`wake`, 0..1).
+  const heat =
+    g.target >= 0
+      ? smoothstep(0.62, 1, local)
+      : Math.max(smoothstep(0.2, 0.85, drawnIn), 0.55 * wake);
   // A landed grain is part of the surface now; a halo grain keeps circling.
   const gone =
     g.target >= 0
@@ -1008,7 +1113,7 @@ function drawGrain(
   // comes up only as it starts to move.
   const lift = g.mote >= 0 ? 1 : Math.pow(smoothstep(0, 0.3, local), 1.5);
   const a0 = g.target >= 0 ? g.a0 : g.a0 * 0.55;
-  const a = a0 * lift * (1 + 0.35 * heat) * (1 - gone);
+  const a = a0 * lift * (1 + 0.35 * heat) * (1 - gone) * (1 + 0.9 * wake);
   const rad = g.r0 * lerp(1, 1.25, heat) * (1 - 0.3 * gone);
   if (a > 0.012) {
     if (heat < 0.999) {

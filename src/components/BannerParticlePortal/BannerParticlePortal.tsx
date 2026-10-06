@@ -102,57 +102,44 @@ const SPIRAL_STRENGTH = 3.0;
 // natural size) -- keeps the scrub distance proportional to viewport height
 // without needing a separate spacer element in the DOM.
 //
-// The pin is split into three legs that share one continuous scroll range
+// The pin is split into two legs that share one continuous scroll range
 // and one canvas. The first is the original banner -> galaxy transform, and
 // it still occupies exactly the 220% of scroll distance it always did -- so
 // every pixel of that sequence lands on the same scroll position as before.
-// The second is the journey into the black hole and through the five worlds
-// inside it. It is not scrubbed: it is a row of stops the journey director
-// flies the camera between, one scroll each (see journeyDirector), and its
-// scroll distance is only what gives each stop a place on the page -- one
-// screen apiece, so the scrollbar still means something.
+// The second is the journey into the black hole, through the five worlds
+// inside it, and down to where the Education book is made. It is not
+// scrubbed: it is a row of stops the journey director flies the camera
+// between, one scroll each (see journeyDirector), and its scroll distance
+// is only what gives each stop a place on the page -- one screen apiece,
+// so the scrollbar still means something. The last stop is the end of the
+// page: the book is made there, opened and read, with no more scrolling.
 const LEGACY_PERCENT = 220;
 const STOP_PERCENT = 100;
 const STOP_COUNT = createDirector().stops.length;
 const GUIDE_PERCENT = STOP_PERCENT * (STOP_COUNT - 1);
-// The third: the Education section's opening, where the universe the camera
-// has come to rest in gathers itself into a book (see educationBook). This
-// one is scrubbed, as it always was.
-const EDU_PERCENT = 230;
-const TOTAL_PERCENT = LEGACY_PERCENT + GUIDE_PERCENT + EDU_PERCENT;
+const TOTAL_PERCENT = LEGACY_PERCENT + GUIDE_PERCENT;
 const PIN_DISTANCE = `+=${TOTAL_PERCENT}%`;
 // Where the first leg ends within the combined trigger's 0..1 progress --
 // which is the gateway, the journey's first stop.
 const LEGACY_SPAN = LEGACY_PERCENT / TOTAL_PERCENT;
-// ...how far apart the stops are...
+// ...and how far apart the stops are.
 const STOP_SPAN = STOP_PERCENT / TOTAL_PERCENT;
-// ...and where the last of them is, and the Education leg begins.
-const EDU_START = (LEGACY_PERCENT + GUIDE_PERCENT) / TOTAL_PERCENT;
-// The Education leg is measured in the journey's old units -- the scroll
-// distance one unit of journey progress used to take -- so the book forms
-// over exactly the scroll it always did: a moment of stillness once the
-// camera is at rest, the stretch the book forms over, and after it the
-// rest of the leg, where the book simply floats.
-const EDU_T_PERCENT = 540;
-const EDU_LEAD = 0.02;
-const EDU_FORM = 0.31;
-// The book's own progress follows that scroll, but is never let run faster
-// than this -- seconds for the whole formation forward, and for undoing it
-// -- so a flick of the wheel cannot make it snap into being.
+// The book (see educationBook) is not scrolled into being: once the camera
+// is at rest at the last stop it forms on its own clock, start to finish,
+// at the pace it was always let form at -- seconds for the whole formation
+// forward, and for undoing it once the journey is sent back...
 const EDU_MIN_FORWARD_S = 6.5;
 const EDU_MIN_BACK_S = 2.4;
-// ...and how closely it follows, per second, when the scroll is slow.
+// ...and how gently, per second, it eases into its final rest.
 const EDU_FOLLOW = 3.2;
-
-/** How far the scroll says the book should have formed, 0..1. */
-function eduTargetAt(rawProgress: number) {
-  const eduT = ((rawProgress - EDU_START) * TOTAL_PERCENT) / EDU_T_PERCENT;
-  return clamp((eduT - EDU_LEAD) / EDU_FORM, 0, 1);
-}
 
 type Props = {
   revealed: boolean;
   pinRef: RefObject<HTMLElement | null>;
+  /** Told when the journey comes to rest at the gateway -- the galaxy
+   *  formed round its opening, waiting for the scroll that starts it -- and
+   *  when it leaves. */
+  onGateway?: (resting: boolean) => void;
 };
 
 type Particle = {
@@ -218,7 +205,11 @@ function voidRadiusMult(angle: number) {
   );
 }
 
-export default function BannerParticlePortal({ revealed, pinRef }: Props) {
+export default function BannerParticlePortal({
+  revealed,
+  pinRef,
+  onGateway,
+}: Props) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // Carries only the dust that is genuinely in front of a project screen,
@@ -239,6 +230,7 @@ export default function BannerParticlePortal({ revealed, pinRef }: Props) {
   // ...and each distant world's title card, in a layer over everything.
   const cardNodesRef = useRef<(HTMLDivElement | null)[]>([]);
   const revealedRef = useRef(revealed);
+  const onGatewayRef = useRef(onGateway);
   const renderRef = useRef<(progress: number) => void>(() => {});
   const lastProgressRef = useRef(0);
   const triggerRef = useRef<ScrollTrigger | null>(null);
@@ -250,6 +242,10 @@ export default function BannerParticlePortal({ revealed, pinRef }: Props) {
   useEffect(() => {
     revealedRef.current = revealed;
   }, [revealed]);
+
+  useEffect(() => {
+    onGatewayRef.current = onGateway;
+  }, [onGateway]);
 
   // Reveals the canvas the instant the real fold/unfold animation settles.
   // At progress 0 every particle sits at its exact home cell with no gap,
@@ -310,9 +306,11 @@ export default function BannerParticlePortal({ revealed, pinRef }: Props) {
     let journey: JourneyWorld | null = null;
     let stations: Station[] = [];
     let frames: StationFrame[] = [];
-    // The Education book, and how far it has formed (eased toward what the
-    // scroll asks for on every frame of the loop below).
+    // The Education book, whether it is wanted (the journey is at rest at
+    // its last stop), and how far it has formed (eased toward that on every
+    // frame of the loop below).
     const edu = createEduBook();
+    let eduWanted = 0;
     let eduE = 0;
     // ...and its opening, once it is clicked (see bookOpening).
     const opening = createBookOpening();
@@ -756,7 +754,7 @@ export default function BannerParticlePortal({ revealed, pinRef }: Props) {
             edu,
             time,
             eduE,
-            eduTargetAt(lastProgressRef.current)
+            eduWanted
           )
         );
         placeContactLinks(contactLinks(opening));
@@ -1015,6 +1013,7 @@ export default function BannerParticlePortal({ revealed, pinRef }: Props) {
     // settles, so without this the loop would otherwise keep redrawing
     // forever after the user scrolls past the hero entirely.
     let isVisible = false;
+    let atGateway = false;
     const startTime = performance.now();
     let rafId = 0;
     let lastNow = startTime;
@@ -1022,13 +1021,18 @@ export default function BannerParticlePortal({ revealed, pinRef }: Props) {
       timeRef.current = (now - startTime) / 1000;
       const dt = Math.min(0.05, Math.max(0, (now - lastNow) / 1000));
       lastNow = now;
-      // The book follows the scroll, eased, and never faster than it can be
-      // believed to be forming.
-      const wanted = eduTargetAt(lastProgressRef.current);
+      // The book is made once the journey has come to rest at its last
+      // stop, and unmade once the journey is sent back from it -- on its own
+      // clock either way, eased, and never faster than it can be believed
+      // to be forming.
+      eduWanted =
+        director.pos === director.last && director.target === director.last
+          ? 1
+          : 0;
       // An open book has to shut before the universe can take it apart,
       // so while it is open (or opening, or shutting) it is held formed.
-      const held = tickBookOpening(opening, edu, dt, eduE, wanted);
-      const target = held ? 1 : wanted;
+      const held = tickBookOpening(opening, edu, dt, eduE, eduWanted);
+      const target = held ? 1 : eduWanted;
       const step = (target - eduE) * (1 - Math.exp(-dt * EDU_FOLLOW));
       eduE = clamp(
         eduE + clamp(step, -dt / EDU_MIN_BACK_S, dt / EDU_MIN_FORWARD_S),
@@ -1037,9 +1041,21 @@ export default function BannerParticlePortal({ revealed, pinRef }: Props) {
       );
       if (Math.abs(target - eduE) < 1e-4) eduE = target;
       // The journey, on its own clock. It may not leave the book's stop
-      // until the book has been unmade.
+      // until the book has been unmade, and no scroll is its own while the
+      // book is being made.
       director.canLeaveLast = eduE <= 0.0005 && !held;
+      director.bookFormed = eduE >= 1;
       updateDirector(director, dt, timeRef.current, scrollHooks);
+      // Resting at the gateway, with the page there too (not scrolled back
+      // up into the galaxy): the journey is waiting for its first scroll.
+      const resting =
+        director.pos === 0 &&
+        director.target === 0 &&
+        lastProgressRef.current >= LEGACY_SPAN - scrollHooks.px() * 3;
+      if (resting !== atGateway) {
+        atGateway = resting;
+        onGatewayRef.current?.(resting);
+      }
       if (revealedRef.current && isVisible) render(lastProgressRef.current);
       rafId = requestAnimationFrame(tick);
     };
@@ -1063,6 +1079,7 @@ export default function BannerParticlePortal({ revealed, pinRef }: Props) {
       disposeBookOpening(opening);
       setJourneyDolly(0);
       detachDirector();
+      if (atGateway) onGatewayRef.current?.(false);
       setGalaxyClaim(null);
       clearJourneyWake();
       bookHit.removeEventListener("click", onBookClick);

@@ -19,6 +19,17 @@
   }
 }
 
+/* No scrollbar along the side: the page is one pinned cinematic journey, and
+   the hero's ScrollCue says there is more below. Scrolling itself (wheel,
+   touch, keys) is untouched -- only the bar is hidden. */
+html {
+  scrollbar-width: none;
+}
+
+html::-webkit-scrollbar {
+  display: none;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
