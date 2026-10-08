@@ -28,59 +28,9 @@
 }
 
 /* A distant world's entrance (see BEAT_END in projectStations). JS writes
-   these only while one is playing; their initial values are the resting
-   look, so the moment it ends and they are removed nothing moves. */
-@property --ps-slit-x {
-  syntax: "<number>";
-  inherits: true;
-  initial-value: 1;
-}
-@property --ps-slit-y {
-  syntax: "<number>";
-  inherits: true;
-  initial-value: 1;
-}
-@property --ps-flash {
-  syntax: "<number>";
-  inherits: true;
-  initial-value: 0;
-}
-@property --ps-glint {
-  syntax: "<number>";
-  inherits: true;
-  initial-value: 1;
-}
-@property --ps-rays {
-  syntax: "<number>";
-  inherits: true;
-  initial-value: 0;
-}
-@property --ps-rays-scale {
-  syntax: "<number>";
-  inherits: true;
-  initial-value: 1;
-}
-@property --ps-spin {
-  syntax: "<angle>";
-  inherits: true;
-  initial-value: 0deg;
-}
-@property --ps-type {
-  syntax: "<number>";
-  inherits: true;
-  initial-value: 1;
-}
-@property --ps-track {
-  syntax: "<number>";
-  inherits: true;
-  initial-value: 0.44;
-}
+   this only while one is playing; its initial value is the resting look,
+   so the moment it ends and it is removed nothing moves. */
 @property --ps-rule {
-  syntax: "<number>";
-  inherits: true;
-  initial-value: 1;
-}
-@property --ps-sheen {
   syntax: "<number>";
   inherits: true;
   initial-value: 1;
@@ -384,130 +334,12 @@
   text-shadow: 0 0 20px rgba(var(--ps-accent), 0.55);
 }
 
-/* ---- a distant world's entrance ---- */
-
-.station[data-intro] .panel {
-  /* Opens out of the flare's own line: a slit of light across the screen's
-     middle, widening to its full width, then tearing open top and bottom.
-     Past the edges by the reach of the bloom once fully open, so its glow
-     is never cut off -- and gone altogether once the entrance is over. */
-  clip-path: inset(
-    calc(50% - 2px - var(--ps-slit-y) * (50% + 218px))
-      calc(50% - var(--ps-slit-x) * (50% + 220px))
-  );
-}
-
-.rays,
-.flash,
-.glint {
-  position: absolute;
-  pointer-events: none;
-  display: none;
-}
-
-.station[data-intro] :is(.rays, .flash, .glint) {
-  display: block;
-}
-
-.rays {
-  /* God-rays from behind the screen: soft, uneven shafts of its own light,
-     thinning out to nothing, turning slowly as they die away. */
-  left: 50%;
-  top: 50%;
-  width: 220%;
-  aspect-ratio: 1;
-  opacity: var(--ps-rays);
-  transform: translate(-50%, -50%) rotate(var(--ps-spin))
-    scale(var(--ps-rays-scale));
-  --beam: rgba(var(--ps-accent), 0.3);
-  --beam-dim: rgba(var(--ps-accent), 0.14);
-  background: conic-gradient(
-    transparent 0deg,
-    var(--beam) 6deg,
-    transparent 13deg 20deg,
-    var(--beam-dim) 25deg,
-    transparent 30deg 36deg,
-    var(--beam) 44deg,
-    transparent 52deg 60deg,
-    var(--beam-dim) 65deg,
-    transparent 70deg 77deg,
-    var(--beam) 85deg,
-    transparent 92deg 99deg,
-    var(--beam-dim) 104deg,
-    transparent 109deg 115deg,
-    var(--beam) 123deg,
-    transparent 131deg 141deg,
-    var(--beam) 147deg,
-    transparent 153deg 162deg,
-    var(--beam-dim) 168deg,
-    transparent 173deg 181deg,
-    var(--beam) 189deg,
-    transparent 197deg 205deg,
-    var(--beam-dim) 211deg,
-    transparent 216deg 223deg,
-    var(--beam) 230deg,
-    transparent 237deg 246deg,
-    var(--beam-dim) 252deg,
-    transparent 257deg 264deg,
-    var(--beam) 272deg,
-    transparent 280deg 289deg,
-    var(--beam-dim) 295deg,
-    transparent 300deg 309deg,
-    var(--beam) 318deg,
-    transparent 326deg 334deg,
-    var(--beam-dim) 341deg,
-    transparent 347deg
-  );
-  -webkit-mask-image: radial-gradient(
-    closest-side,
-    #000 10%,
-    rgba(0, 0, 0, 0.4) 34%,
-    rgba(0, 0, 0, 0.1) 62%,
-    transparent 88%
-  );
-  mask-image: radial-gradient(
-    closest-side,
-    #000 10%,
-    rgba(0, 0, 0, 0.4) 34%,
-    rgba(0, 0, 0, 0.1) 62%,
-    transparent 88%
-  );
-}
-
-.flash {
-  /* The white-out the screen opens in: over-exposed at its heart, burning
-     through its own colour toward the rim, falling back to the picture. */
-  inset: 0;
-  opacity: var(--ps-flash);
-  background: radial-gradient(
-    80% 100% at 50% 50%,
-    #fff,
-    rgba(255, 246, 232, 0.96) 42%,
-    rgba(var(--ps-accent), 0.82) 82%,
-    rgba(var(--ps-accent), 0.6)
-  );
-}
-
-.glint {
-  /* One pass of light across the glass, left to right. */
-  inset: 0;
-  background: linear-gradient(
-    104deg,
-    transparent 36%,
-    rgba(255, 255, 255, 0.08) 44%,
-    rgba(255, 255, 255, 0.5) 50%,
-    rgba(var(--ps-accent), 0.24) 53%,
-    transparent 60%
-  );
-  transform: translateX(calc((var(--ps-glint) * 2 - 1) * 110%));
-}
-
 /* ---- title card ---- */
 
 .card {
   /* The world's name, as a credit: flat to the lens and over the picture.
-     Placed with its top-centre under the screen (JS), so it grows from
-     there as it tracks in. */
+     Placed with its top-centre under the screen (JS), so it scales from
+     there with the screen's distance. */
   position: absolute;
   left: 0;
   top: 0;
@@ -546,76 +378,17 @@
 }
 
 .cardTitle {
-  position: relative;
-  display: block;
-}
-
-.cardLetters,
-.cardSheen {
   display: block;
   font-family: var(--font-geist-mono), monospace;
   font-weight: 500;
   line-height: 1.2;
   text-transform: uppercase;
-  /* Tracks in from wide to the site's own title spacing. The padding
-     matches the space after the last letter, so the name stays centred
-     while it does. */
-  letter-spacing: calc(var(--ps-track) * 1em);
-  padding-left: calc(var(--ps-track) * 1em);
-}
-
-.cardLetters {
+  /* The site's own title tracking. The padding matches the space after the
+     last letter, so the name sits centred between its rules. */
+  letter-spacing: 0.44em;
+  padding-left: 0.44em;
   color: rgba(244, 230, 211, 0.95);
   text-shadow: 0 0 0.9em rgba(var(--ps-accent), 0.55);
-}
-
-.letter {
-  display: inline-block;
-}
-
-.card[data-intro] .letter {
-  /* One letter igniting after another: each lands out of a white-hot blur
-     a little larger than it will be, and cools into place. --n and --i
-     are the title's length and this letter's place in it. */
-  --a: clamp(0, calc((var(--ps-type) * (var(--n) + 4) - var(--i)) / 4), 1);
-  opacity: var(--a);
-  transform: translateY(calc((1 - var(--a)) * 0.25em))
-    scale(calc(1.45 - var(--a) * 0.45));
-  filter: blur(calc((1 - var(--a)) * 0.3em));
-  text-shadow:
-    0 0 0.9em rgba(var(--ps-accent), 0.55),
-    0 0 calc(0.2em + (1 - var(--a)) * 0.8em)
-      rgba(255, 255, 255, calc((1 - var(--a)) * 0.9));
-}
-
-.cardSheen {
-  /* The name again, drawn only as the band of light passing through it. */
-  position: absolute;
-  inset: 0;
-  display: none;
-  color: transparent;
-  background: linear-gradient(
-      100deg,
-      transparent 40%,
-      rgba(255, 255, 255, 0.95) 50%,
-      transparent 60%
-    )
-    calc((1 - var(--ps-sheen)) * 100%) 0 / 300% 100% no-repeat;
-  -webkit-background-clip: text;
-  background-clip: text;
-}
-
-.card[data-intro] .cardSheen {
-  display: block;
-}
-
-.srOnly {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
 }
 
 @keyframes scanDrift {

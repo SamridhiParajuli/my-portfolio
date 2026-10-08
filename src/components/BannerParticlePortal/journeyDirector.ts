@@ -81,6 +81,10 @@ export const DEPART = 0.3;
  *  plainly going somewhere. */
 const TRAVEL_BASE = 1.6;
 const TRAVEL_PER_UNIT = 0.27;
+/** The last leg -- from the last world down to where the book is made -- is
+ *  flown this much quicker: nothing is met on the way, and the book is what
+ *  is waited for. */
+const LAST_LEG_PACE = 0.6;
 
 /* ------------------------------------------------------------------ *
  * Pace
@@ -95,12 +99,29 @@ const TURN_TAU = 0.5;
 /** Seconds after coming to rest before a scroll can send it on again. A
  *  gesture begun before then -- the tail of the one that brought it here,
  *  or one begun in flight -- belongs to this stop, and is spent. */
-const ARRIVE_LOCK = 0.45;
+const ARRIVE_LOCK = 0.35;
 /** Seconds the input must have been still before a gesture that sends it
- *  on. Gestures are told apart by a far shorter gap (GESTURE_GAP), so a
- *  hard scroll on a wheel -- flick after flick -- is many of them; this
- *  keeps it the one scroll it is meant as. */
-const REARM = 0.7;
+ *  on, for a while after it comes to rest. Gestures are told apart by a far
+ *  shorter gap (GESTURE_GAP), so a hard scroll on a wheel -- flick after
+ *  flick -- is many of them; this keeps it the one scroll it is meant as...
+ */
+const REARM = 0.35;
+/** ...but only for so long. A gesture begun this many seconds after it
+ *  came to rest sends it on whatever came before it: someone still
+ *  scrolling a second after it stopped is asking for the next stop, and a
+ *  stop that waits for them to hold still first never seems to answer. */
+const SETTLE = 1.2;
+/** Seconds of stillness before a gesture that make it plainly a new scroll
+ *  rather than more of an old one. One begun out of that much stillness is
+ *  taken at once when it is at rest, and is kept if it comes in a flight's
+ *  last EARLY seconds -- as the camera is visibly settling, which is when
+ *  it looks arrived -- and sends it on once it does arrive. */
+const FRESH_QUIET = 0.6;
+const EARLY = 0.5;
+/** Seconds the galaxy takes to finish forming by itself, from where it
+ *  first reads as formed round its opening (ScrollHooks.formed) to the
+ *  gateway -- less from further on. */
+const FINISH_S = 1.0;
 /** The motion streaks' shutter, in seconds: how far back along its own
  *  motion the camera the streaks are drawn from was. */
 const SHUTTER = 1 / 140;
@@ -112,6 +133,15 @@ const SHUTTER = 1 / 140;
  *  momentum arrives far more often than this, so a flick and everything it
  *  coasts on afterwards is one gesture -- one step. */
 const GESTURE_GAP = 170;
+/** A trackpad swiped again before its last swipe has coasted out sends no
+ *  gap, so it is told apart by its strength: once a gesture has coasted
+ *  down to COAST of its peak, a delta FRESH_RISE times the low it came down
+ *  to (and no less than FRESH_FLOOR of the peak, nor FRESH_MIN px) is a new
+ *  push, and a new gesture. */
+const COAST = 0.4;
+const FRESH_RISE = 2.5;
+const FRESH_FLOOR = 0.3;
+const FRESH_MIN = 4;
 /** Px of swipe before a touch counts as a scroll. */
 const SWIPE_MIN = 28;
 
@@ -156,6 +186,20 @@ export type Director = {
   /** True while the menu is cutting to somewhere else: every scroll is
    *  spent, and nothing but the cut moves the page. */
   locked: boolean;
+  /** The book at the last stop, once it is open: whether a scroll that
+   *  way (+1 on, -1 back) is its own -- a page to turn, the finale to go on
+   *  to or back from -- and taking it. Null for none. */
+  book: { takes: (dir: number) => boolean; step: (dir: number) => void } | null;
+  /** A step (+1 or -1) asked for as the flight was settling, taken as soon
+   *  as it arrives; 0 for none. */
+  queued: number;
+  /** The galaxy finishing itself: the page gliding on to the gateway from
+   *  `from` (scroll progress), starting at clock time `at`, over `dur` s. */
+  glide: { from: number; at: number; dur: number } | null;
+  /** Which way the reader last moved the page themselves (+1 down, -1 up). */
+  heading: number;
+  /** A finger is on the screen. */
+  touching: boolean;
 
   /* --- this frame --- */
   /** The leg `pos` is on, and seconds into it. */
@@ -185,7 +229,9 @@ export function createDirector(): Director {
     ],
   });
   for (let k = 1; k < stops.length - 1; k++) {
-    const travel = TRAVEL_BASE + TRAVEL_PER_UNIT * (stops[k + 1] - stops[k]);
+    const travel =
+      (TRAVEL_BASE + TRAVEL_PER_UNIT * (stops[k + 1] - stops[k])) *
+      (k === stops.length - 2 ? LAST_LEG_PACE : 1);
     legs.push({
       dur: DEPART + travel,
       keys: [
@@ -209,6 +255,11 @@ export function createDirector(): Director {
     canLeaveLast: true,
     bookFormed: false,
     locked: false,
+    book: null,
+    queued: 0,
+    glide: null,
+    heading: 0,
+    touching: false,
     leg: 0,
     tau: 0,
     camZ: 0,
@@ -273,6 +324,11 @@ export type ScrollHooks = {
   raw: () => number;
   /** ...at stop k. */
   rawOf: (k: number) => number;
+  /** ...from where the galaxy already reads as formed round its opening,
+   *  short of the gateway. Scrolled on past it, the galaxy finishes by
+   *  itself rather than leaving the reader scrolling through what looks
+   *  like nothing happening. */
+  formed: () => number;
   /** One CSS px of it. */
   px: () => number;
   /** Puts the page at a scroll progress, at once; returns where it landed. */
@@ -319,15 +375,14 @@ export function placeDirector(
 ) {
   d.target = clamp(target, 0, d.last);
   d.pos = clamp(pos, 0, d.last);
+  d.queued = 0;
+  d.glide = null;
+  d.heading = 0;
   const want = Math.sign(d.target - d.pos);
   if (want === 0) {
     d.vel = 0;
   } else {
-    const leg =
-      want > 0
-        ? Math.min(Math.floor(d.pos), d.last - 1)
-        : Math.max(Math.ceil(d.pos) - 1, 0);
-    d.vel = (want * (want > 0 ? 1 : REVERSE)) / d.legs[leg].dur;
+    d.vel = (want * (want > 0 ? 1 : REVERSE)) / d.legs[flightLeg(d, want)].dur;
   }
   d.arrivedAt = now;
   rememberOwn(d, hooks.scrollTo(raw));
@@ -345,6 +400,13 @@ function external(
 ) {
   // Mid-cut, the cut puts the page where it is going.
   if (d.locked) return;
+  // While the galaxy finishes itself, the page going on is where it is
+  // gliding anyway (the last of a scroll still running out); going back is
+  // the reader taking it back.
+  if (d.glide) {
+    if (raw >= prev) return;
+    d.glide = null;
+  }
   // While the book is being made, nothing takes the journey anywhere: the
   // page goes back to it.
   if (makingBook(d)) {
@@ -361,12 +423,14 @@ function external(
     d.pos = 0;
     d.target = 0;
     d.vel = 0;
+    d.queued = 0;
     return;
   }
   if (s > d.last + tiny) {
     d.pos = d.last;
     d.target = d.last;
     d.vel = 0;
+    d.queued = 0;
     return;
   }
   // Among the stops, nothing but a gesture moves the journey. A hard flick
@@ -378,6 +442,58 @@ function external(
   // page goes back to it.
   if (sp < -tiny || sp > d.last + tiny) d.arrivedAt = now;
   rememberOwn(d, hooks.scrollTo(hooks.rawOf(d.target)));
+}
+
+/**
+ * The galaxy finishing itself. Once the reader has scrolled it on past
+ * where it reads as formed, the page glides the rest of the way to the
+ * gateway on its own -- the same frames the scroll would have shown, just
+ * not waiting for it -- and comes to rest there, where the invitation in
+ * the opening says what to do next.
+ */
+function finishGalaxy(d: Director, now: number, hooks: ScrollHooks) {
+  const gate = hooks.rawOf(0);
+  if (!d.glide) {
+    const raw = d.lastRaw;
+    const from = hooks.formed();
+    if (
+      d.locked ||
+      d.touching ||
+      d.heading <= 0 ||
+      d.pos !== 0 ||
+      d.target !== 0 ||
+      raw < from ||
+      raw >= gate - hooks.px() * 2
+    ) {
+      return;
+    }
+    d.glide = { from: raw, at: now, dur: (FINISH_S * (gate - raw)) / (gate - from) };
+  }
+  const g = d.glide;
+  const u = clamp((now - g.at) / g.dur, 0, 1);
+  // Eased out of the reader's own scrolling: on at once, settling in.
+  const e = 1 - (1 - u) * (1 - u) * (1 - u);
+  rememberOwn(d, hooks.scrollTo(g.from + (gate - g.from) * e));
+  if (u >= 1) {
+    d.glide = null;
+    d.heading = 0;
+    d.arrivedAt = now;
+  }
+}
+
+/** The leg `pos` is flying along, going the way `want` says. */
+function flightLeg(d: Director, want: number) {
+  return want > 0
+    ? Math.min(Math.floor(d.pos), d.last - 1)
+    : Math.max(Math.ceil(d.pos) - 1, 0);
+}
+
+/** Seconds left of the flight under way, at the pace of its leg. */
+function flightLeft(d: Director) {
+  const want = Math.sign(d.target - d.pos);
+  if (want === 0) return 0;
+  const rate = (want > 0 ? 1 : REVERSE) / d.legs[flightLeg(d, want)].dur;
+  return Math.abs(d.target - d.pos) / rate;
 }
 
 /**
@@ -402,17 +518,17 @@ export function updateDirector(
   } else if (raw !== d.lastRaw) {
     const prev = d.lastRaw;
     d.lastRaw = raw;
-    if (!isOwn(d, raw, eps)) external(d, prev, raw, now, hooks);
+    if (!isOwn(d, raw, eps)) {
+      d.heading = Math.sign(raw - prev);
+      external(d, prev, raw, now, hooks);
+    }
   }
+  finishGalaxy(d, now, hooks);
 
   const want = Math.sign(d.target - d.pos);
   const held = want < 0 && d.pos >= d.last && !d.canLeaveLast;
   if (want !== 0 && !held) {
-    const leg =
-      want > 0
-        ? Math.min(Math.floor(d.pos), d.last - 1)
-        : Math.max(Math.ceil(d.pos) - 1, 0);
-    const rate = (want > 0 ? 1 : REVERSE) / d.legs[leg].dur;
+    const rate = (want > 0 ? 1 : REVERSE) / d.legs[flightLeg(d, want)].dur;
     const tau = d.vel * want < 0 ? TURN_TAU : VEL_TAU;
     d.vel += (want * rate - d.vel) * (1 - Math.exp(-dt / tau));
     d.pos = clamp(d.pos + d.vel * dt, 0, d.last);
@@ -420,6 +536,9 @@ export function updateDirector(
       d.pos = d.target;
       d.vel = 0;
       d.arrivedAt = now;
+      // Asked on as it was settling: on it goes.
+      if (d.queued !== 0 && !d.locked) goTo(d, d.target + d.queued, hooks);
+      d.queued = 0;
     }
   } else {
     d.vel = 0;
@@ -468,10 +587,32 @@ type Gesture = {
   native: boolean;
   /** It was let through at an end stop to scroll on past it. */
   release: boolean;
+  /** Wheel only: its strongest delta yet (px), and the weakest since. */
+  peak: number;
+  low: number;
 };
 
 function gesture(dir: number, began: number, quiet: number): Gesture {
-  return { dir, began, quiet, spent: false, native: false, release: false };
+  return {
+    dir,
+    began,
+    quiet,
+    spent: false,
+    native: false,
+    release: false,
+    peak: 0,
+    low: 0,
+  };
+}
+
+/** A wheel delta of `mag` px is a new push within `g`: it had coasted most
+ *  of the way out, and this is strong again. */
+function pushesAgain(g: Gesture, mag: number) {
+  return (
+    g.peak > 0 &&
+    g.low <= COAST * g.peak &&
+    mag >= Math.max(FRESH_RISE * g.low, FRESH_FLOOR * g.peak, FRESH_MIN)
+  );
 }
 
 /**
@@ -496,6 +637,16 @@ function route(
     g.spent = true;
     return true;
   }
+  // While the galaxy finishes itself, a scroll on is the one that brought
+  // it here, and stops at the gateway with it. A scroll back takes the page
+  // back.
+  if (d.glide) {
+    if (g.dir > 0) {
+      g.native = true;
+      return true;
+    }
+    d.glide = null;
+  }
   // Above the gateway, or past the last stop: the page's own scroll.
   if (
     (idle && d.target === 0 && raw < hooks.rawOf(0) - eps) ||
@@ -508,17 +659,43 @@ function route(
   // Arrived here scrolling the page: it stops at the stop.
   if (g.native || g.spent) return true;
   if (!idle) {
-    // A change of mind: turn round.
     if (g.dir !== Math.sign(d.target - d.pos)) {
-      if (fire && goTo(d, d.target + g.dir, hooks)) g.spent = true;
+      // A change of mind: turn round.
+      if (fire && goTo(d, d.target + g.dir, hooks)) {
+        g.spent = true;
+        d.queued = 0;
+      }
+    } else if (
+      fire &&
+      g.quiet >= FRESH_QUIET &&
+      g.began >= now + flightLeft(d) - EARLY &&
+      d.target + g.dir >= 0 &&
+      d.target + g.dir <= d.last
+    ) {
+      // A new scroll as it settles: kept, and taken when it arrives.
+      d.queued = g.dir;
+      g.spent = true;
     }
     return true;
   }
   // At rest at a stop. Whatever was already under way when it got here, or
   // follows hard on the heels of more input, is the scroll that brought it
-  // here: it goes no further -- not on, nor out past either end.
-  if (g.began < d.arrivedAt + ARRIVE_LOCK || g.quiet < REARM) {
+  // here: it goes no further -- not on, nor out past either end. Unless it
+  // began after it came to rest, out of stillness; and not for long, so
+  // that someone who keeps on scrolling is never kept waiting.
+  const since = g.began - d.arrivedAt;
+  const fresh = since >= 0 && g.quiet >= FRESH_QUIET;
+  if (!fresh && (since < ARRIVE_LOCK || (g.quiet < REARM && since < SETTLE))) {
     g.spent = true;
+    return true;
+  }
+  // At the book, once it is open, a scroll is the reader's way through it:
+  // one page, or one step, a gesture.
+  if (d.target === d.last && d.book?.takes(g.dir)) {
+    if (fire) {
+      d.book.step(g.dir);
+      g.spent = true;
+    }
     return true;
   }
   // At either end, a scroll outward is the page's again.
@@ -555,10 +732,18 @@ export function attachDirector(
           : e.deltaY;
     if (dy === 0 || Math.abs(dy) < Math.abs(e.deltaX)) return;
     const dir = dy > 0 ? 1 : -1;
+    const mag = Math.abs(dy);
     const ms = performance.now();
-    if (!wheelG || ms - wheelAt > GESTURE_GAP || dir !== wheelG.dir) {
+    if (
+      !wheelG ||
+      ms - wheelAt > GESTURE_GAP ||
+      dir !== wheelG.dir ||
+      pushesAgain(wheelG, mag)
+    ) {
       wheelG = begin(dir, ms);
     }
+    if (mag > wheelG.peak) wheelG.peak = wheelG.low = mag;
+    else wheelG.low = Math.min(wheelG.low, mag);
     wheelAt = inputAt = ms;
     if (route(d, wheelG, clock(), hooks, true)) e.preventDefault();
   };
@@ -569,6 +754,7 @@ export function attachDirector(
   let touchOwned = false;
   const onTouchStart = (e: TouchEvent) => {
     touchG = null;
+    d.touching = true;
     if (e.touches.length !== 1) return;
     touchY = e.touches[0].clientY;
     touchX = e.touches[0].clientX;
@@ -591,6 +777,9 @@ export function attachDirector(
     if (!touchG.spent && Math.abs(dy) >= SWIPE_MIN) {
       route(d, touchG, clock(), hooks, true);
     }
+  };
+  const onTouchEnd = (e: TouchEvent) => {
+    d.touching = e.touches.length > 0;
   };
 
   let keyG: Gesture | null = null;
@@ -619,11 +808,15 @@ export function attachDirector(
   window.addEventListener("wheel", onWheel, { passive: false });
   window.addEventListener("touchstart", onTouchStart, { passive: true });
   window.addEventListener("touchmove", onTouchMove, { passive: false });
+  window.addEventListener("touchend", onTouchEnd, { passive: true });
+  window.addEventListener("touchcancel", onTouchEnd, { passive: true });
   window.addEventListener("keydown", onKey);
   return () => {
     window.removeEventListener("wheel", onWheel);
     window.removeEventListener("touchstart", onTouchStart);
     window.removeEventListener("touchmove", onTouchMove);
+    window.removeEventListener("touchend", onTouchEnd);
+    window.removeEventListener("touchcancel", onTouchEnd);
     window.removeEventListener("keydown", onKey);
   };
 }

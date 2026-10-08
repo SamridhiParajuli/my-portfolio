@@ -14,12 +14,10 @@
  *
  *   fadeIn    the light it gives off, climbing out of nothing over a long
  *             stretch -- something is out there before anything is seen;
- *   resolve   where it starts is the cue for its entrance: a timed hero
- *             shot, like the cast credits of an opening title sequence
- *             (flare, widescreen, the screen tearing open out of the light,
- *             its name landing under it -- see BEAT_END in
- *             projectStations), which settles on it exactly as soft as it
- *             is from this far off;
+ *   resolve   where it starts is the cue for its entrance: a short, quiet
+ *             timed reveal (the screen fading up into focus, its name
+ *             fading in under it -- see BEAT_END in projectStations), which
+ *             settles on it exactly as soft as it is from this far off;
  *   lost      and, after a while holding, simply thinning away again.
  *
  * Each one makes its entrance while the one before is still there, so one

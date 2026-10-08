@@ -21,22 +21,26 @@
  *   6.4  lands on the head of the book's spine. The book dips under it and
  *        steadies. It folds its wings; looks at us; looks down at the page;
  *   9.3  opens its wings, slowly, all the way up, and
- *  10.2  takes the book up by its spine, beating hard and slow. As it
- *        rises, the book gives itself up: the leather burns back from
- *        where it is held, front by front, to motes; the leaves are pressed
- *        flat into the page on top, Experience fading from it; the gutter
- *        comes up flat; and the sheet -- parchment now, the same paper --
- *        curls up from both its outer edges and rolls in on itself, the
- *        motes of the leather streaming into the rolls, until
- *  15.9  the two rolls meet, and it hangs from the bird's feet a scroll.
- *  15.6  It is carried off a little way through the universe, which streams
- *        by as the camera goes along; the bird banks, comes back, and
- *  20.5  lets it go. The scroll hangs on in the air by itself. The bird
- *        climbs away into the dark it came from, and is gone by 25.
- *  21.5  The scroll comes to the middle, turns square to us, nearer, and
- *  23.4  unrolls, slowly, its rolls drawing apart, until it lies open
+ *  10.2  takes the book up by its spine, beating hard and slow, and at once
+ *        carries it off on a wide round through the universe -- out to the
+ *        right, away behind, across, and back -- the universe streaming by
+ *        as the camera goes along. And on the way round the book gives
+ *        itself up: the leather burns back from where it is held, front by
+ *        front, to motes; the leaves are pressed flat into the page on top,
+ *        Experience fading from it; the gutter comes up flat; the page goes
+ *        old -- darker, stained, its head and tail eaten ragged -- an
+ *        ancient parchment; it curls up from both its outer edges and rolls
+ *        in on itself, the motes of the leather streaming into the rolls,
+ *        and out of the rolls' ends grow the turned wooden rollers the
+ *        leather has become, until
+ *  16.0  the two rolls meet, and it hangs from the bird's feet an ancient
+ *        scroll as the bird comes round in front again, and
+ *  17.4  lets it go. The scroll hangs on in the air by itself. The bird
+ *        climbs away into the dark it came from, and is gone by 21.6.
+ *  18.4  The scroll comes to the middle, turns square to us, nearer, and
+ *  19.9  unrolls, slowly, its rolls drawing apart, until it lies open
  *        between them;
- *  27.6  a light crosses it, and the last page is written (contactPage).
+ *  24.1  a light crosses it, and the last page is written (contactPage).
  *
  * Everything here is a function of c alone, as the book's own opening is
  * of its clock -- so it plays backwards, fast, if the scroll leaves it --
@@ -51,6 +55,7 @@ import {
   XC,
   closedEll,
   createSheet,
+  rodTip,
   rollPoint,
   rollRadius,
   type Sheet,
@@ -73,22 +78,30 @@ const { BW, BT, SB, X0 } = BOOK;
 const LAND = 6.4;
 /** The bird takes the book up: from here on it is becoming the last page. */
 export const TAKE = 10.2;
-const RELEASE = 20.5;
+/** Carried round, it is let go of in front again. */
+const RELEASE = 17.4;
 /** The sheet takes the place of the pages (unseen: it is them, exactly). */
 const SHEET_ON = 9.9;
-const FLATTEN: [number, number] = [11.0, 12.7];
-const FADE_EXP: [number, number] = [10.5, 12.3];
-const DIS_LEATHER: [number, number] = [10.6, 14.3];
-const DIS_PAGES: [number, number] = [11.3, 13.1];
-const GROW: [number, number] = [12.7, 15.3];
-const ROLL: [number, number] = [12.5, 15.9];
+const FLATTEN: [number, number] = [11.0, 12.5];
+const FADE_EXP: [number, number] = [10.5, 12.0];
+const DIS_LEATHER: [number, number] = [10.6, 14.0];
+const DIS_PAGES: [number, number] = [11.2, 12.9];
+/** The page going old, in from its edges; and its head and tail eaten
+ *  ragged. */
+const AGE: [number, number] = [11.2, 14.4];
+const RAG: [number, number] = [12.6, 14.8];
+const GROW: [number, number] = [12.4, 14.8];
+const ROLL: [number, number] = [12.3, 16.0];
+/** The rollers grow out of the rolls' ends (once a roll is a turn and more
+ *  round its core, so nothing of them is seen until they come out). */
+const RODS: [number, number] = [13.8, 16.4];
 /** Rolled up and out of sight, its face is laid as the parchment. */
 const SWAP = 16.6;
 /** Nothing of the book itself is left. */
-const BOOK_GONE = 14.45;
-const UNROLL: [number, number] = [23.4, 28.2];
+const BOOK_GONE = 14.15;
+const UNROLL: [number, number] = [19.9, 24.6];
 /** When the last page begins to be written. */
-export const CONTACT_AT = 27.6;
+export const CONTACT_AT = 24.1;
 /** How much of each half is still rolled once it lies open: on a narrow
  *  screen, more -- so it stands nearer square, and can come closer. */
 const ELL_OPEN = 0.135;
@@ -207,11 +220,12 @@ const FREQ: Key[] = [
   [5.6, 1.5],
   [6.4, 1.5],
   [9.8, 1.3],
-  [15.6, 1.3],
-  [18.8, 1.2],
-  [20.4, 1.5],
-  [22, 1.25],
-  [26, 1.1],
+  [11.2, 1.3],
+  [12.0, 1.15],
+  [16.4, 1.2],
+  [17.2, 1.5],
+  [18.8, 1.25],
+  [22, 1.1],
 ];
 const AMP: Key[] = [
   [0.6, 0.62],
@@ -225,15 +239,18 @@ const AMP: Key[] = [
   [6.5, 0],
   [10.0, 0],
   [10.25, 0.85],
-  [15.6, 0.85],
-  [17.4, 0.75],
-  [17.8, 0.12],
-  [18.6, 0.12],
-  [19.1, 0.75],
-  [20.4, 0.9],
-  [21.6, 0.9],
-  [22.6, 0.55],
-  [23.2, 0.12],
+  [11.4, 0.85],
+  [12.2, 0.7],
+  [13.4, 0.7],
+  // A glide, round the far side.
+  [13.8, 0.14],
+  [14.6, 0.14],
+  [15.0, 0.72],
+  [16.6, 0.8],
+  [17.2, 0.9],
+  [18.4, 0.9],
+  [19.4, 0.55],
+  [20.0, 0.12],
 ];
 const EXT: Key[] = [
   [0, 1],
@@ -255,21 +272,21 @@ const LIFT: Key[] = [
   [9.35, -1.35],
   [10.0, 0.95],
   [10.25, 0.15],
-  [15.6, 0.12],
-  [17.8, 0.16],
-  [18.6, 0.16],
-  [19.1, 0.1],
-  [21.6, 0.1],
-  [23.2, 0.15],
+  [13.4, 0.12],
+  [13.8, 0.18],
+  [14.6, 0.18],
+  [15.0, 0.1],
+  [18.4, 0.1],
+  [20.0, 0.15],
 ];
 const SWEEP: Key[] = [
   [5.4, 0],
   [6.0, 0.45],
   [6.4, 0.3],
   [6.9, 0],
-  [20.2, 0],
-  [20.6, 0.3],
-  [21.2, 0],
+  [17.1, 0],
+  [17.5, 0.3],
+  [18.1, 0],
 ];
 const TAIL_FAN: Key[] = [
   [0.6, 0.25],
@@ -279,9 +296,12 @@ const TAIL_FAN: Key[] = [
   [7.4, 0.1],
   [9.3, 0.1],
   [10.2, 0.75],
-  [15.6, 0.55],
-  [20.3, 0.9],
-  [21.4, 0.4],
+  [11.6, 0.55],
+  // Fanned to steer, round the far side.
+  [13.6, 0.75],
+  [15.4, 0.55],
+  [17.2, 0.9],
+  [18.3, 0.4],
 ];
 const TAIL_PITCH: Key[] = [
   [0.6, 0.05],
@@ -291,25 +311,25 @@ const TAIL_PITCH: Key[] = [
   [7.4, 0.02],
   [9.3, 0.02],
   [10.2, -0.3],
-  [15.6, -0.1],
-  [20.3, -0.35],
-  [21.4, 0],
+  [11.6, -0.1],
+  [17.2, -0.35],
+  [18.3, 0],
 ];
 const LEGS: Key[] = [
   [0.6, 0],
   [4.9, 0],
   [5.6, 1],
-  [20.7, 1],
-  [21.7, 0],
+  [17.6, 1],
+  [18.6, 0],
 ];
 const REACH: Key[] = [
   [5.3, 0],
   [5.9, 0.9],
   [6.35, 0.2],
   [6.6, 0],
-  [20.4, 0],
-  [20.65, 0.35],
-  [21.2, 0],
+  [17.3, 0],
+  [17.55, 0.35],
+  [18.1, 0],
 ];
 const GRIP: Key[] = [
   [0, 0.25],
@@ -317,15 +337,15 @@ const GRIP: Key[] = [
   [5.5, 0],
   [6.4, 0],
   [6.6, 1],
-  [20.45, 1],
-  [20.62, 0],
-  [21.6, 0.35],
+  [17.35, 1],
+  [17.52, 0],
+  [18.5, 0.35],
 ];
 const HANG: Key[] = [
   [6.2, 0],
   [6.5, 1],
-  [20.55, 1],
-  [20.9, 0],
+  [17.45, 1],
+  [17.8, 0],
 ];
 const HEAD_YAW: Key[] = [
   [7.2, 0],
@@ -343,20 +363,23 @@ const HEAD_PITCH: Key[] = [
   [9.0, -0.7],
   [9.25, 0],
   [10.2, -0.3],
-  [15.6, -0.15],
-  [20.2, -0.4],
-  [20.9, 0],
+  [11.6, -0.15],
+  // On the way round, it looks down at what it carries.
+  [12.7, -0.15],
+  [13.1, -0.6],
+  [13.9, -0.6],
+  [14.3, -0.15],
+  [17.1, -0.4],
+  [17.8, 0],
 ];
 /** Its heading, held as it is scripted (where it is not simply flying the
  *  way it is going): on the book, facing out to our left; turning to face
- *  us as it takes it up; and as it lets go. */
+ *  us as it takes it up. */
 const PSI: Key[] = [
   [5.3, -1.9],
   [6.4, -2.25],
   [9.3, -2.25],
   [10.25, -Math.PI],
-  [15.0, -Math.PI],
-  [19.9, -2.95],
 ];
 const THETA: Key[] = [
   [5.3, 0.3],
@@ -365,21 +388,15 @@ const THETA: Key[] = [
   [9.3, 0.42],
   [9.8, 0.62],
   [10.3, 0.8],
-  [15.0, 0.7],
-  [19.9, 0.6],
-  [20.7, 0.66],
 ];
-/** How much it simply flies the way it is going, rather than as scripted. */
+/** How much it simply flies the way it is going, rather than as scripted:
+ *  from the moment it is off with the book, all the way round, and away. */
 const FREE: Key[] = [
   [0, 1],
   [5.3, 1],
   [6.4, 0],
-  [15.0, 0],
-  [16.2, 1],
-  [19.9, 1],
-  [20.4, 0],
-  [20.7, 0],
-  [21.6, 1],
+  [10.6, 0],
+  [11.7, 1],
 ];
 
 /** Its wingbeat, as a phase: the integral of how fast it beats, so that it
@@ -433,6 +450,13 @@ export type FinaleFrame = {
   fadeExp: number;
   ember: number;
   bookOn: boolean;
+  /** How old the page has grown (while it is still laid as the pages it
+   *  was), 0..1; how ragged its head and tail are, 0..1; and how far the
+   *  rollers have grown out of the rolls' ends (0 none, past 1 grown and
+   *  cooled). */
+  age: number;
+  rag: number;
+  rods: number;
   /** How much of the warm light it stands in. */
   glow: number;
   /** The last page's clock (seconds since it began), negative before. */
@@ -455,6 +479,9 @@ export type Finale = {
   gripRest: V3;
   zFinal: number;
   small: boolean;
+  /** How far to either side the round can go on this screen (1 on a wide
+   *  one; much less on a tall one, where it goes round mostly in depth). */
+  reach: number;
   /** Its path in, ending where it stands on the book. */
   approach: PKey[];
   depart: PKey[];
@@ -488,6 +515,9 @@ export function createFinale(): Finale {
       fadeExp: 0,
       ember: 0,
       bookOn: true,
+      age: 0,
+      rag: 0,
+      rods: 0,
       glow: 1,
       contactP: -1,
       open: 0,
@@ -502,6 +532,7 @@ export function createFinale(): Finale {
     gripRest: [0, 0, 0],
     zFinal: 0,
     small: false,
+    reach: 1,
     approach: [],
     depart: [],
     carry: [],
@@ -647,19 +678,22 @@ function poseBird(f: Finale, c: number) {
  *  is, and the scroll's comes to where it can be read). */
 function ensureKeys(f: Finale) {
   const g = f.gripRest;
-  const key = `${g.map((v) => v.toFixed(4)).join(",")}:${f.zFinal.toFixed(4)}`;
+  const key = `${g.map((v) => v.toFixed(4)).join(",")}:${f.zFinal.toFixed(4)}:${f.reach.toFixed(3)}`;
   if (f.keysFor === key) return;
   f.keysFor = key;
-  // Carried, and let go, and coming to rest.
+  // Carried round -- up and off to the right, away behind, across, and back
+  // in front -- and let go, and coming to rest. (Never so far off that what
+  // the book is becoming cannot be seen, nor off the side of the screen.)
+  const x = f.reach;
   f.carry = [
     { c: TAKE, p: [g[0], g[1], g[2]], v: [0, 0, 0] },
-    { c: 11.8, p: [g[0], g[1] + 0.08, g[2] + 0.08] },
-    { c: 13.6, p: [g[0] + 0.05, g[1] + 0.15, g[2] + 0.12] },
-    { c: 15.6, p: [0.17, g[1] + 0.2, 0.0] },
-    { c: 17.3, p: [0.86, g[1] + 0.25, -0.75] },
-    { c: 18.9, p: [0.44, g[1] + 0.3, -1.12] },
-    { c: RELEASE, p: [-0.12, g[1] + 0.18, -0.72] },
-    { c: 22.0, p: [-0.03, YP + 0.07, f.zFinal * 0.45 - 0.2] },
+    { c: 11.1, p: [g[0] + 0.2 * x, g[1] + 0.14, g[2] + 0.03] },
+    { c: 12.5, p: [0.74 * x, g[1] + 0.24, -0.28] },
+    { c: 13.9, p: [0.8 * x, g[1] + 0.3, -1.0] },
+    { c: 15.2, p: [0.06 * x, g[1] + 0.32, -1.3] },
+    { c: 16.4, p: [-0.62 * x, g[1] + 0.26, -0.82] },
+    { c: RELEASE, p: [-0.24 * x, g[1] + 0.18, -0.34] },
+    { c: 18.6, p: [-0.04 * x, YP + 0.07, f.zFinal * 0.45 - 0.2] },
     { c: UNROLL[0], p: [0, YP, f.zFinal], v: [0, 0, 0] },
   ];
   // In: from far off and high, round, and down onto the book.
@@ -674,7 +708,7 @@ function ensureKeys(f: Finale) {
     { c: 5.2, p: [0.95, 1.02, -0.6] },
     { c: LAND, p: [PV3[0], PV3[1], PV3[2]], v: [0, 0, 0] },
   ];
-  // Away: from where it lets go, up into the dark.
+  // Away: from where it lets go, on round and up into the dark.
   const at = RELEASE + 0.12;
   const p0 = [0, 0, 0];
   const p1 = [0, 0, 0];
@@ -690,9 +724,9 @@ function ensureKeys(f: Finale) {
       p: [(p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2, (p0[2] + p1[2]) / 2],
       v: [(p1[0] - p0[0]) / 0.1, (p1[1] - p0[1]) / 0.1 + 0.4, (p1[2] - p0[2]) / 0.1],
     },
-    { c: 21.7, p: [-0.55, g[1] + 1.0, -1.8] },
-    { c: 23.2, p: [-1.3, g[1] + 2.0, -4.8] },
-    { c: 25.0, p: [-2.1, g[1] + 3.1, -8.6] },
+    { c: 18.6, p: [0.42 * x, g[1] + 0.9, -0.95] },
+    { c: 19.9, p: [1.0 * x, g[1] + 1.9, -3.7] },
+    { c: 21.6, p: [1.65 * x, g[1] + 3.0, -8.2] },
   ];
 }
 
@@ -717,7 +751,8 @@ function swingAt(f: Finale, c: number, out: number[]) {
 /**
  * Works out the finale at clock `c`: everything but the motes. `gripRest`
  * is where the book is held from as it lies open (world); `zFinal` how
- * near the scroll comes to be read; `pitchOpen` the open book's pitch.
+ * near the scroll comes to be read; `pitchOpen` the open book's pitch;
+ * `reach` how far to either side its round can go on this screen.
  */
 export function finaleAt(
   f: Finale,
@@ -725,11 +760,13 @@ export function finaleAt(
   gripRest: V3,
   zFinal: number,
   pitchOpen: number,
-  small: boolean
+  small: boolean,
+  reach = 1
 ) {
   f.gripRest = gripRest;
   f.zFinal = zFinal;
   f.small = small;
+  f.reach = reach;
   ensureKeys(f);
   const fr = f.frame;
   fr.c = c;
@@ -742,8 +779,8 @@ export function finaleAt(
     [
       [0, 1],
       [3.4, 0.9],
-      [15.6, 0.9],
-      [18.0, STAGE_END],
+      [11.0, 0.9],
+      [14.5, STAGE_END],
     ],
     c
   );
@@ -753,17 +790,17 @@ export function finaleAt(
       [0, 0],
       [3.4, 0.065],
       [TAKE, 0.065],
-      [13.6, 0.13],
-      [15.6, 0.15],
+      [12.5, 0.13],
+      [14.5, 0.15],
       [RELEASE, 0.12],
-      [24.5, 0],
+      [UNROLL[0] + 1.0, 0],
     ],
     c
   );
 
   /* the book, held and carried */
   gripAt(f, c, PT);
-  const carried = smoothstep(TAKE, TAKE + 0.8, c) * (1 - smoothstep(RELEASE, RELEASE + 2.4, c));
+  const carried = smoothstep(TAKE, TAKE + 0.8, c) * (1 - smoothstep(RELEASE, RELEASE + 2.0, c));
   // Each beat jolts it a little.
   const beat = Math.sin(2 * Math.PI * flapAt(c) + 0.6) * track(AMP, c);
   PT[1] += 0.009 * beat * smoothstep(TAKE, TAKE + 0.5, c) * (1 - smoothstep(RELEASE - 0.1, RELEASE + 0.1, c));
@@ -776,12 +813,14 @@ export function finaleAt(
   // Hanging from its feet it comes upright, though never quite (we see the
   // tops of its rolls); let go, square to us.
   fr.dPitch =
-    (-pitchOpen - 0.12) * smoothstep(10.4, 12.4, c) +
+    (-pitchOpen - 0.12) * smoothstep(10.4, 12.2, c) +
     0.12 * smoothstep(RELEASE, UNROLL[0], c) +
     clamp(0.1 * ACC[2], -0.22, 0.22) * carried;
+  // It turns a little with the bird as it goes round, but never so far
+  // that what is happening to it is seen edge on.
   fr.dYaw =
-    (0.36 * Math.sin(Math.PI * span(c, 10.8, 15.4)) +
-      0.22 * Math.sin(Math.PI * span(c, 15.6, 20.9))) *
+    (0.32 * Math.sin(Math.PI * span(c, 10.8, 14.2)) -
+      0.24 * Math.sin(Math.PI * span(c, 14.2, 18.2))) *
     settle;
   fr.calm = finaleCalm(c);
 
@@ -795,6 +834,10 @@ export function finaleAt(
   fr.disP = 1.04 * easeInOutSine(span(c, DIS_PAGES[0], DIS_PAGES[1]));
   fr.ember = 1 - smoothstep(BOOK_GONE - 0.4, BOOK_GONE, c);
   fr.bookOn = c < BOOK_GONE;
+  fr.age = smoothstep(AGE[0], AGE[1], c);
+  fr.rag = smoothstep(RAG[0], RAG[1], c);
+  fr.rods = 1.15 * easeInOutSine(span(c, RODS[0], RODS[1]));
+  sh.rods = fr.rods > 0;
   sh.flat = flat;
   sh.gutter = lerp(1, 0.12, flat);
   sh.lh = lerp(PL, LH_FINAL, smootherstep(span(c, GROW[0], GROW[1])));
@@ -826,7 +869,7 @@ export function finaleAt(
   b.pos[0] = PV3[0];
   b.pos[1] = PV3[1];
   b.pos[2] = PV3[2];
-  b.alpha = smoothstep(0.6, 2.8, c) * (1 - smoothstep(23.0, 25.0, c));
+  b.alpha = smoothstep(0.6, 2.8, c) * (1 - smoothstep(19.9, 21.6, c));
   // The universe's light along its edges is there, faintly, from the
   // first; the book's warm light only near it.
   const dx = PV3[0];
@@ -849,7 +892,7 @@ export function finaleVeil(c: number) {
 
 /** How much further the camera has gone on at c, OPEN_DOLLY units. */
 export function finaleDolly(c: number) {
-  return FIN_DOLLY * easeInOutSine(span(c, 15.0, 21.6));
+  return FIN_DOLLY * easeInOutSine(span(c, 11.2, 18.6));
 }
 
 /** How much of the open book's float is left to it at c. */
@@ -859,8 +902,8 @@ export function finaleCalm(c: number) {
       [0, 1],
       [LAND, 1],
       [7.6, 0],
-      [21.5, 0],
-      [24, 1.15],
+      [RELEASE + 0.6, 0],
+      [UNROLL[0] + 0.6, 1.15],
     ],
     c
   );
@@ -968,7 +1011,8 @@ function spawn(
   c1: number,
   cool: number,
   side = 0,
-  pull = 0
+  pull = 0,
+  hf = 0.08 + 0.84 * Math.random()
 ) {
   if (f.motes.length >= (small ? 120 : 240)) return;
   f.motes.push({
@@ -984,7 +1028,7 @@ function spawn(
     c1,
     cool,
     side,
-    hf: 0.08 + 0.84 * Math.random(),
+    hf,
     pull,
     ph: Math.random() * Math.PI * 2,
     px: x,
@@ -1053,7 +1097,11 @@ function emitMotes(f: Finale, st: FinaleStage, c: number, prevC: number, dt: num
         if (fld < thr || fld > thr + 0.045) continue;
         st.book(x, y, lerp(z, -0.006, fr.squash), S3);
         const side = x < XC ? -1 : 1;
-        spawn(f, small, S3[0], S3[1], (rnd() - 0.5) * 18 * sc, -(8 + rnd() * 16) * sc, 3.6 + rnd() * 1.5, 0.8 + rnd() * 0.9, 0.5 + rnd() * 0.35, M_HOT, rnd() < 0.5 ? M_GOLD : M_PALE, 0.9 + rnd() * 0.6, side, 0.5 + rnd() * 0.8);
+        // Late in it, some go to the rolls' ends, where the rollers the
+        // leather becomes are to grow.
+        const toEnd = c > RODS[0] - 2 && rnd() < 0.4;
+        const hf = toEnd ? (rnd() < 0.5 ? -0.07 : 1.07) : 0.08 + 0.84 * rnd();
+        spawn(f, small, S3[0], S3[1], (rnd() - 0.5) * 18 * sc, -(8 + rnd() * 16) * sc, 3.6 + rnd() * 1.5, 0.8 + rnd() * 0.9, 0.5 + rnd() * 0.35, M_HOT, rnd() < 0.5 ? M_GOLD : M_PALE, 0.9 + rnd() * 0.6, side, 0.5 + rnd() * 0.8, hf);
         break;
       }
     }
@@ -1083,6 +1131,16 @@ function emitMotes(f: Finale, st: FinaleStage, c: number, prevC: number, dt: num
       rollPoint(sh, side, 0.05 + 0.9 * rnd(), L3);
       st.book(L3[0], L3[1], L3[2] + rollRadius(sh.ell), S3);
       spawn(f, small, S3[0], S3[1], (rnd() - 0.5) * 8 * sc, -(5 + rnd() * 9) * sc, 2.6 + rnd() * 1.8, 0.45 + rnd() * 0.6, 0.3 + rnd() * 0.3, rnd() < 0.5 ? M_PALE : M_GOLD, M_GOLD, 2);
+    }
+  }
+  // Off the rollers' ends as they grow out of the rolls, hot.
+  if (fr.rods > 0.05 && fr.rods < 1.02) {
+    for (let n = due(f, 3, small ? 4 : 8, dt); n > 0; n--) {
+      const side = rnd() < 0.5 ? -1 : 1;
+      const end = rnd() < 0.5 ? -1 : 1;
+      rodTip(sh, side, end, fr.rods, L3);
+      st.book(L3[0], L3[1], L3[2], S3);
+      spawn(f, small, S3[0], S3[1], (rnd() - 0.5) * 12 * sc, -end * (3 + rnd() * 9) * sc, 1.4 + rnd() * 1.2, 0.45 + rnd() * 0.5, 0.4 + rnd() * 0.3, M_HOT, M_GOLD, 0.7);
     }
   }
   // It lets go: a few from its feet.

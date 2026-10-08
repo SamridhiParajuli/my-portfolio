@@ -1660,50 +1660,64 @@ function shadePaper(u: number, v: number) {
   occl = 1;
 }
 
-/** The parchment the book's leaves are pressed into once the bird has it
- *  (bookFinale): the same laid paper, a shade warmer and more mottled, toned
- *  in from all four edges now, cockled the way old skin cockles, and creased
- *  faintly down the middle where the spine was. u across it from the left,
- *  v up from the tail, in book heights; `w` is how wide it is. */
+/** The ancient parchment the book's leaves are pressed into once the bird
+ *  has it (bookFinale): not paper now but old skin -- vellum gone the
+ *  colour of honey and tobacco, uneven as skin is, pored, mottled, stained
+ *  where water once got to it (with the darker tide lines at the stains'
+ *  edges), banded faintly where it lay rolled for centuries, browned deep in
+ *  from every edge, and creased down the middle where the spine was. u
+ *  across it from the left, v up from the tail, in book heights; `w` is how
+ *  wide it is. (bookGL ages the pages toward this as they become it.) */
+const VELLUM = [0.6, 0.47, 0.3] as const;
+const STAIN = [0.44, 0.29, 0.15] as const;
+
 function shadeParchment(u: number, v: number, w: number) {
   const ph = 1 - 2 * SQ;
-  setAlbedo(LEAF[0] * 1.02, LEAF[1] * 0.985, LEAF[2] * 0.92);
-  specK = 0.04;
-  specPow = 8;
-  sheenK = 0.025;
+  setAlbedo(VELLUM[0], VELLUM[1], VELLUM[2]);
+  specK = 0.05;
+  specPow = 7;
+  sheenK = 0.035;
   metal = 0;
-  let k = 0.95 + 0.06 * fbm2(u * 7 + 13, v * 7 - 4);
-  k *= 1 - 0.012 * (0.5 + 0.5 * Math.cos(v * 590));
-  const cu = ((u + 0.011) % 0.056) - 0.028;
-  k *= 1 - 0.03 * groove(cu, 0.0016);
+  // Thicker and thinner, cloudy at every scale.
+  let k =
+    0.92 + 0.12 * fbm2(u * 3.2 + 13, v * 3.2 - 4) + 0.05 * fbm2(u * 11 - 2, v * 11 + 7);
+  // Its pores.
+  k *= 1 - 0.1 * smoothstep(0.55, 0.85, vn(u * 150 + 5, v * 150 - 1));
+  // Where it lay rolled: faint bands across it, about a turn apart.
+  const band = Math.sin((u / 0.13) * Math.PI * 2 + 1.5 * fbm2(u * 1.5, v * 1.5));
+  k *= 1 - 0.035 * smoothstep(0.7, 1, band);
   // The crease, darker for the dirt that has worked into it.
   const c = u - w / 2;
-  k *= 1 - 0.07 * groove(c, 0.01);
+  k *= 1 - 0.08 * groove(c, 0.012);
   aR *= k;
   aG *= k;
   aB *= k;
-  // Toning, in from every edge.
-  const edge =
-    Math.min(u, w - u, v, ph - v) + 0.014 * vn(u * 14 + 3, v * 14);
+  // Water stains, their rims a little darker, where the water dried.
+  const st = fbm2(u * 1.9 + 31, v * 1.9 - 17);
+  const stain = smoothstep(0.18, 0.3, st);
+  mixAlbedo(STAIN, stain * 0.18);
+  mixAlbedo(STAIN, stain * (1 - smoothstep(0.3, 0.42, st)) * 0.12);
+  // Toning, deep in from every edge.
+  const edge = Math.min(u, w - u, v, ph - v) + 0.02 * vn(u * 12 + 3, v * 12);
   const toned =
-    smoothstep(0.09, 0, edge) * 0.34 +
-    0.09 * (0.5 + 0.5 * fbm2(u * 1.8 + 8, v * 1.8));
-  aR *= 1 - toned * 0.55;
-  aG *= 1 - toned * 0.8;
-  aB *= 1 - toned * 1.2;
+    smoothstep(0.16, 0, edge) * 0.42 +
+    0.1 * (0.5 + 0.5 * fbm2(u * 1.6 + 8, v * 1.6));
+  aR *= 1 - toned * 0.5;
+  aG *= 1 - toned * 0.75;
+  aB *= 1 - toned * 1.1;
   const drift = smoothstep(0.05, 0.55, fbm2(u * 2.4 - 5, v * 2.4 + 1));
   mixAlbedo(
     FOX,
-    smoothstep(0.62, 0.8, vn(u * 46 + 2, v * 46 - 7)) * drift * 0.36
+    smoothstep(0.6, 0.8, vn(u * 46 + 2, v * 46 - 7)) * drift * 0.45
   );
-  // Cockling, the crease, and the fibre.
+  // Cockled as old skin cockles, the crease, and the grain of the skin.
   vnD(u * 3.1 + 2, v * 3.1 - 6);
-  let du = 0.04 * vdx;
-  let dv = 0.04 * vdy;
-  du += (2 * 0.0016 * c) / (0.01 * 0.01) * Math.exp(-((c / 0.01) ** 2));
+  let du = 0.06 * vdx;
+  let dv = 0.06 * vdy;
+  du += ((2 * 0.0016 * c) / (0.012 * 0.012)) * Math.exp(-((c / 0.012) ** 2));
   vnD(u * 260 + 7, v * 260 - 3);
-  du += vdx * 260 * 0.00005;
-  dv += vdy * 260 * 0.00005;
+  du += vdx * 260 * 0.00006;
+  dv += vdy * 260 * 0.00006;
   bDu = du;
   bDv = dv;
   occl = 1;

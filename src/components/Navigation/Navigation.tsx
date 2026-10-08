@@ -17,8 +17,8 @@ type NavigationProps = {
   // rather than sitting there — unusably, mid-intro — the whole time.
   revealed: boolean;
   // Where the journey is. On the banner the menu is the corner one; past
-  // it, everywhere else, it is a strip of frames across the top, with the
-  // frame for where you are lit.
+  // it, everywhere else, it is a row of links across the top, on the name's
+  // line, with where you are underlined.
   section: Section;
   // Sends the journey somewhere (see BannerParticlePortal's navigate).
   onNavigate: (to: Section) => void;
@@ -33,14 +33,19 @@ export default function Navigation({
   const cornerShown = revealed && onBanner;
   const barShown = revealed && !onBanner;
   const [isOpen, setIsOpen] = useState(false);
+  // On a phone the header's links don't fit beside the name, so they fold
+  // into a Menu button there that drops them down below it.
+  const [barOpen, setBarOpen] = useState(false);
   // Leaving the banner shuts the corner menu, so it is not found still open
-  // on coming back.
+  // on coming back -- and the same for the header's drop-down.
   const [wasCornerShown, setWasCornerShown] = useState(cornerShown);
   if (cornerShown !== wasCornerShown) {
     setWasCornerShown(cornerShown);
     if (!cornerShown) setIsOpen(false);
+    else setBarOpen(false);
   }
-  const barListRef = useRef<HTMLUListElement>(null);
+  const barRef = useRef<HTMLElement>(null);
+  const barToggleRef = useRef<HTMLButtonElement>(null);
   const didInteractRef = useRef(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
@@ -156,26 +161,25 @@ export default function Navigation({
     }
   }, [isOpen]);
 
-  // On a narrow screen the strip scrolls sideways: keeps the lit frame in
-  // the middle of it -- as it changes, and as the screen does. (Scrolled by
-  // hand rather than scrollIntoView, which could also move the page -- and
-  // the page is the journey.)
+  // The header's drop-down (a phone's) shuts on Escape, or on a tap
+  // anywhere outside it.
   useEffect(() => {
-    const list = barListRef.current;
-    if (!list || !barShown) return;
-    const center = (behavior: ScrollBehavior) => {
-      const current = list.querySelector<HTMLElement>('[data-current="true"]');
-      if (!current || list.scrollWidth <= list.clientWidth) return;
-      list.scrollTo({
-        left: current.offsetLeft - (list.clientWidth - current.offsetWidth) / 2,
-        behavior,
-      });
+    if (!barOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setBarOpen(false);
+      barToggleRef.current?.focus({ preventScroll: true });
     };
-    center("smooth");
-    const onResize = () => center("auto");
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, [section, barShown]);
+    const onPointerDown = (event: PointerEvent) => {
+      if (!barRef.current?.contains(event.target as Node)) setBarOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [barOpen]);
 
   const go = (event: MouseEvent, to: Section) => {
     event.preventDefault();
@@ -254,46 +258,53 @@ export default function Navigation({
         </nav>
       </div>
 
-      {/* Past the banner: the same strip of film, laid across the top. It
-          unspools from the middle, its frames dropping into place one after
-          another; the frame for where you are is lit, as if in the gate, with
-          the corner button's focus brackets locked on it. */}
+      {/* Past the banner: the sections along the top, on the name's line --
+          the name at its left, where it already sits, and these at its right
+          in white, straight on the page, with where you are underlined. */}
       <nav
+        ref={barRef}
         className={styles.bar}
         data-shown={barShown}
+        data-open={barOpen}
         inert={!barShown}
         aria-label="Primary"
       >
-        <ul ref={barListRef} className={styles.barList}>
-          {SECTIONS.map((item, i) => {
-            const current = item.id === section;
-            return (
-              <li
-                key={item.id}
-                className={styles.barFrame}
-                data-current={current}
-                style={{ "--i": i } as CSSProperties}
+        <button
+          ref={barToggleRef}
+          type="button"
+          className={styles.barToggle}
+          onClick={() => setBarOpen((open) => !open)}
+          aria-expanded={barOpen}
+          aria-controls="site-bar-list"
+        >
+          {barOpen ? "Close" : "Menu"}
+        </button>
+        <ul id="site-bar-list" className={styles.barList}>
+          {SECTIONS.map((item, i) => (
+            <li
+              key={item.id}
+              className={styles.barItem}
+              style={{ "--i": i } as CSSProperties}
+            >
+              <a
+                href={`#${item.id}`}
+                className={styles.barLink}
+                aria-label={item.label}
+                aria-current={item.id === section ? "location" : undefined}
+                onClick={(event) => {
+                  setBarOpen(false);
+                  go(event, item.id);
+                }}
               >
-                <a
-                  href={`#${item.id}`}
-                  className={styles.barLink}
-                  aria-label={item.label}
-                  aria-current={current ? "location" : undefined}
-                  onClick={(event) => go(event, item.id)}
-                >
-                  <span className={styles.barIndex} aria-hidden="true">
-                    {String(i + 1).padStart(2, "0")}
+                <span className={styles.barLabel} aria-hidden="true">
+                  <span className={styles.barFull}>{item.label}</span>
+                  <span className={styles.barShort}>
+                    {item.short ?? item.label}
                   </span>
-                  <span className={styles.barLabel} aria-hidden="true">
-                    <span className={styles.barFull}>{item.label}</span>
-                    <span className={styles.barShort}>
-                      {item.short ?? item.label}
-                    </span>
-                  </span>
-                </a>
-              </li>
-            );
-          })}
+                </span>
+              </a>
+            </li>
+          ))}
         </ul>
       </nav>
     </>

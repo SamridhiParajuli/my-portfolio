@@ -81,6 +81,260 @@
   outline-offset: 10px;
 }
 
+/* Over each page of the open book: a click turns the leaf -- over, on the
+   right-hand page; back, on the left. Like the book's own hit area, it adds
+   nothing to the picture. */
+.pageHit {
+  position: absolute;
+  display: none;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.pageHit:focus {
+  outline: none;
+}
+
+.pageHit:focus-visible {
+  outline: 1px solid rgba(255, 214, 160, 0.55);
+  outline-offset: 6px;
+}
+
+/* The line under the open book, in the book's own italic, between two fine
+   rules ending in lozenges like the ones under its headings: what the
+   reader can do. "Turn the page" on the first spread; "Turn back", and
+   once Experience is written "Continue", on the next. Its top is set from
+   JS, a little under the pages. */
+.pageCue {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 88%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: clamp(0.5rem, 1.4vmin, 0.9rem);
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(6px);
+  transition:
+    opacity 0.3s ease,
+    transform 0.3s ease,
+    visibility 0s 0.3s;
+}
+
+.pageCue[data-shown="true"] {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  transition:
+    opacity 0.7s ease,
+    transform 0.7s ease;
+}
+
+.pageCue:not([data-mode]) > *,
+.pageCue[data-mode="next"] .cueBack,
+.pageCue[data-mode="next"] .cueSep,
+.pageCue[data-mode="next"] .cueOn,
+.pageCue[data-mode="back"] .cueNext {
+  display: none;
+}
+
+.cueBack,
+.cueNext,
+.cueOn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  margin: 0;
+  padding: 0.45em 0.55em;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  font-family: var(--font-book), Georgia, serif;
+  font-style: italic;
+  font-weight: 500;
+  font-size: clamp(1.1rem, 2.6vmin, 1.55rem);
+  letter-spacing: 0.03em;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    opacity 0.6s ease,
+    visibility 0s;
+}
+
+.cueBack:focus,
+.cueNext:focus,
+.cueOn:focus {
+  outline: none;
+}
+
+.cueBack:focus-visible,
+.cueNext:focus-visible,
+.cueOn:focus-visible {
+  outline: 1px solid rgba(255, 214, 160, 0.55);
+  outline-offset: 2px;
+}
+
+/* "Continue" (and the lozenge before it) only once Experience is written:
+   its place kept meanwhile, so nothing moves when it comes. */
+.pageCue[data-on="false"] .cueOn,
+.pageCue[data-on="false"] .cueSep {
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.3s ease,
+    visibility 0s 0.3s;
+}
+
+/* Warm parchment-white, with a light passing along it now and then, the
+   way the candle crosses the pages. */
+.cueText {
+  padding: 0.1em 0.08em;
+  background: linear-gradient(
+    100deg,
+    #ecd8b4 0%,
+    #ecd8b4 38%,
+    #fffaf0 50%,
+    #ecd8b4 62%,
+    #ecd8b4 100%
+  );
+  background-size: 260% 100%;
+  background-position: 100% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 0.35em rgba(232, 185, 118, 0.5));
+  animation: cueSheen 4.2s ease-in-out 0.8s infinite;
+  transition: filter 0.3s ease;
+}
+
+.cueBack:hover .cueText,
+.cueNext:hover .cueText,
+.cueOn:hover .cueText {
+  filter: drop-shadow(0 0 0.5em rgba(255, 214, 160, 0.9));
+}
+
+@keyframes cueSheen {
+  0% {
+    background-position: 100% 0;
+  }
+  45%,
+  100% {
+    background-position: 0% 0;
+  }
+}
+
+/* The way it goes, leaning that way and back. */
+.chevron {
+  display: inline-block;
+  font-style: normal;
+  font-size: 1.3em;
+  color: #f1c98a;
+  text-shadow: 0 0 0.5em rgba(232, 185, 118, 0.75);
+  transform: translateY(-0.06em);
+}
+
+.cueNext .chevron,
+.cueOn .chevron {
+  animation: leanOn 1.6s ease-in-out infinite;
+}
+
+.cueBack .chevron {
+  animation: leanBack 1.6s ease-in-out infinite;
+}
+
+@keyframes leanOn {
+  0%,
+  100% {
+    transform: translate(0, -0.06em);
+  }
+  50% {
+    transform: translate(0.24em, -0.06em);
+  }
+}
+
+@keyframes leanBack {
+  0%,
+  100% {
+    transform: translate(0, -0.06em);
+  }
+  50% {
+    transform: translate(-0.24em, -0.06em);
+  }
+}
+
+.flourish {
+  position: relative;
+  flex: none;
+  width: clamp(2rem, 7vmin, 4.5rem);
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    rgba(232, 185, 118, 0),
+    rgba(232, 185, 118, 0.8)
+  );
+}
+
+.flourish::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: -3px;
+  width: 6px;
+  height: 6px;
+  background: #e8b976;
+  box-shadow: 0 0 6px rgba(232, 185, 118, 0.7);
+  transform: translateY(-50%) rotate(45deg);
+}
+
+.flourish[data-side="end"] {
+  background: linear-gradient(
+    270deg,
+    rgba(232, 185, 118, 0),
+    rgba(232, 185, 118, 0.8)
+  );
+}
+
+.flourish[data-side="end"]::after {
+  right: auto;
+  left: -3px;
+}
+
+.cueSep {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  margin: 0 0.35rem;
+  background: rgba(232, 185, 118, 0.85);
+  box-shadow: 0 0 6px rgba(232, 185, 118, 0.6);
+  transform: rotate(45deg);
+  transition: opacity 0.6s ease;
+}
+
+@media (max-width: 520px) {
+  .flourish {
+    width: 1.4rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cueText,
+  .chevron {
+    animation: none;
+  }
+}
+
 /* Over each address on the scroll's last page once it is written: what
    follows it. Like the book's own hit area, it adds nothing to the picture
    -- the ink is the thing to click. */

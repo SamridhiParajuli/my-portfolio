@@ -7,12 +7,13 @@
  * Nothing is clicked and nothing is turned to get there: it is open once,
  * and both pages come.
  *
- * Then, once that has been read a while, the next chapter. The right-hand
- * leaf lifts from the spine and goes over (bookOpening turns it), laying
- * bare the page it lay on, and that page is written: Experience. As the
- * leaf goes over, Education fades from the left-hand page, gently, back
- * into the paper, and the leaf comes down on it blank-backed; Certifications
- * goes face down with the leaf it is on.
+ * Then, when the reader turns the page (a click, or a scroll on), the next
+ * chapter. The right-hand leaf lifts from the spine and goes over
+ * (bookOpening turns it), laying bare the page it lay on, and that page is
+ * written: Experience. As the leaf goes over, Education fades from the
+ * left-hand page, gently, back into the paper, and the leaf comes down on it
+ * blank-backed; Certifications goes face down with the leaf it is on. Turned
+ * back, it all comes back the other way.
  *
  * Nothing here floats over the book. The pages are set once into a map
  * that the book's own shader reads as ink (bookGL) -- page after page
@@ -24,22 +25,18 @@
  * and foxing all show through it.
  *
  * Seconds from the moment the book lies open (the page clock):
- *   0.0  nothing moves: two blank pages;
- *   0.5  a warm light, like a candle carried past, crosses the spread;
- *   1.4  EDUCATION is written in, in faded red, as it goes by -- and as it
- *        reaches the right-hand page, CERTIFICATIONS;
- *   2.7  a fine rule is drawn out under each;
- *   3.6  the entries, line by line: each page's first, then its second,
+ *   0.0  a warm light, like a candle carried past, crosses the spread;
+ *   0.25 EDUCATION is written in, in black ink, as it goes by -- and a
+ *        beat later, on the right-hand page, CERTIFICATIONS;
+ *   0.8  a fine rule is drawn out under each;
+ *   1.2  the entries, line by line: each page's first, then its second,
  *        the right-hand page a beat behind the left all the way down, so
  *        the two fill together;
- *   ~9.5 all of it written. The ink dries, and the spread is held;
- *  ~12.3 the right-hand leaf lifts from the spine, and slowly, with all its
- *        weight, goes over; as it does, Education fades from its page;
- *  ~17.9 it lies over on the left, a blank page. A breath; then the light
- *        comes again, across the new page only;
- *  ~19.5 EXPERIENCE, and its rule; then the first position, and after a
- *        pause the second;
- *  ~26   all of it written. The ink dries, and the book breathes again.
+ *   ~3.5 all of it written. The ink dries, and the spread is held for as
+ *        long as the reader likes.
+ * Experience keeps a clock of its own, from when the leaf turned over it
+ * has laid it bare: the light crosses it at once, EXPERIENCE and its rule,
+ * then each position; all of it written in about two seconds.
  */
 
 import { BOOK } from "./antiqueBook";
@@ -103,40 +100,36 @@ const ASPECT = PL / (1 - 2 * BOOK.SQ);
  * ------------------------------------------------------------------ */
 
 /** The light crosses the spread over this. */
-const CANDLE: [number, number] = [0.5, 3.9];
-/** EDUCATION: when the pen begins it. */
-const HEADING_AT = 1.4;
+const CANDLE: [number, number] = [0, 1.9];
+/** EDUCATION: when the pen begins it -- straight away. */
+const HEADING_AT = 0.25;
 /** A heading takes this, and this much more for every page-width of it. */
-const HEAD_BASE = 0.6;
-const HEAD_PER_WIDTH = 1.8;
-/** The right-hand page follows the left by this, row for row: its heading
- *  is begun about as the light reaches it. */
-const FACING_LAG = 0.9;
+const HEAD_BASE = 0.3;
+const HEAD_PER_WIDTH = 0.8;
+/** The right-hand page follows the left by this, row for row. */
+const FACING_LAG = 0.3;
 /** A line takes this, and this much more for every page-width of it. */
-const LINE_BASE = 0.3;
-const LINE_PER_WIDTH = 1.2;
+const LINE_BASE = 0.12;
+const LINE_PER_WIDTH = 0.55;
 /** The next line is begun when this much of the last is still to go. */
 const LINE_OVERLAP = 0.25;
 /** Between one entry and the next. */
-const ROW_GAP = 0.3;
-/** Once the spread is written, it is held this long before the right-hand
- *  leaf lifts... */
-const TURN_HOLD = 2.8;
-/** ...which takes this to go over (bookOpening). */
-export const TURN_DUR = 5.6;
-/** From when it lifts: Education fades from the left-hand page over this,
- *  all but gone by the time the leaf comes down over it. */
-const EDU_FADE: [number, number] = [0.8, 3.8];
-/** From when it lies over: the light crosses the page it laid bare over
- *  this, from the gutter out... */
-const EXP_CANDLE: [number, number] = [0.5, 3.5];
+const ROW_GAP = 0.1;
+/** A rule is drawn out over this, a lozenge between entries over this, and
+ *  the pen pauses this long round either. */
+const RULE_DUR = 0.35;
+const SEP_DUR = 0.25;
+const BEAT = 0.08;
+/** Experience's own clock, from when the leaf turned over it lays it bare:
+ *  the light crosses it over this, from the gutter out... */
+const EXP_CANDLE: [number, number] = [0, 1.6];
 /** ...and EXPERIENCE is begun as it reaches it. */
-const EXP_HEADING_AT = 1.6;
+const EXP_HEADING_AT = 0.2;
 /** Each position is written on its own, with this between them. */
-const EXP_ROW_GAP = 0.75;
+const EXP_ROW_GAP = 0.15;
 /** Once it is all written: the ink dries, and the float comes back. */
-const DRY = 1.4;
-const FLOAT_AFTER: [number, number] = [0.6, 3.0];
+const DRY = 0.6;
+const FLOAT_AFTER: [number, number] = [0.2, 1.4];
 
 /* ------------------------------------------------------------------ *
  * How it is set: page fractions, x across the page as it lies, y down
@@ -167,7 +160,7 @@ const BLOCK_Y = 0.45;
  * A line, as the pen goes along it, in spread units -- x from 0 at the
  * left-hand page's outer edge through 1 at the gutter to 2 at the right's
  * outer edge (whichever right-hand page it is), y 0..1 down from the head
- * -- and page seconds.
+ * -- and seconds: of the page clock, or of Experience's own (`late`).
  */
 export type Stroke = {
   x0: number;
@@ -175,6 +168,7 @@ export type Stroke = {
   y: number;
   t0: number;
   t1: number;
+  late: boolean;
 };
 
 export type SpreadInk = {
@@ -183,19 +177,21 @@ export type SpreadInk = {
    *  of PAGES. */
   canvas: HTMLCanvasElement;
   strokes: Stroke[];
-  /** Page seconds G runs over on the opening spread's pages, and on the
-   *  page found under the leaf; 255 in G is never. */
+  /** Page seconds G runs over on the opening spread's pages, and seconds
+   *  of Experience's own clock on the page found under the leaf; 255 in G
+   *  is never. */
   inkFrom: number;
   inkTo: number;
   inkFrom2: number;
   inkTo2: number;
-  /** When the right-hand leaf lifts, and when it lies over. */
-  turnAt: number;
-  turnEnd: number;
-  /** When the last of it has been written, and when the page clock can
-   *  stop, everything settled. */
+  /** When the last of the opening spread has been written, and when the
+   *  page clock can stop, everything settled. */
   written: number;
   span: number;
+  /** When the last of Experience has been written, on its own clock, and
+   *  when that clock can stop. */
+  expWritten: number;
+  expSpan: number;
 };
 
 type Item = {
@@ -367,18 +363,18 @@ function schedule(
   const { head, rule, rows } = pg;
   head.t0 = notBefore(0);
   head.t1 = head.t0 + HEAD_BASE + (head.w / W) * HEAD_PER_WIDTH;
-  rule.t0 = Math.max(head.t1 - 0.2, notBefore(1));
-  rule.t1 = rule.t0 + 0.7;
+  rule.t0 = Math.max(head.t1 - BEAT, notBefore(1));
+  rule.t1 = rule.t0 + RULE_DUR;
   starts[0] = head.t0;
   starts[1] = rule.t0;
-  let c = rule.t1 + 0.2;
+  let c = rule.t1 + BEAT;
   rows.forEach((e, i) => {
     c = Math.max(c, notBefore(2 + i));
     starts[2 + i] = c;
     if (e.sep) {
-      e.sep.t0 = c - 0.15;
-      e.sep.t1 = e.sep.t0 + 0.4;
-      c += 0.2;
+      e.sep.t0 = c - BEAT;
+      e.sep.t1 = e.sep.t0 + SEP_DUR;
+      c += BEAT;
     }
     for (const l of e.lines) {
       const d = lineDur(l.w, W);
@@ -386,7 +382,7 @@ function schedule(
       l.t1 = c + d;
       c = l.t1 - d * LINE_OVERLAP;
     }
-    c = e.lines[e.lines.length - 1].t1 + 0.1;
+    c = e.lines[e.lines.length - 1].t1 + BEAT / 2;
     if (e.place) {
       e.place.t0 = c;
       e.place.t1 = c + lineDur(e.place.w, W);
@@ -531,23 +527,21 @@ export function bakeSpread(W: number, H: number): SpreadInk | null {
   const left: number[] = [];
   schedule(pages[PAGE_EDUCATION], Wp, (r) => (r === 0 ? HEADING_AT : 0), left, ROW_GAP);
   schedule(pages[PAGE_CERTIFICATIONS], Wp, (r) => (left[r] ?? -Infinity) + FACING_LAG, [], ROW_GAP);
-  let firstWritten = 0;
+  // ...and the page under the leaf, on its own clock from when the leaf
+  // lays it bare, each position on its own.
+  schedule(pages[PAGE_EXPERIENCE], Wp, (r) => (r === 0 ? EXP_HEADING_AT : 0), [], EXP_ROW_GAP);
+  let written = 0;
+  let expWritten = 0;
   for (const it of items) {
-    if (it.page !== PAGE_EXPERIENCE) firstWritten = Math.max(firstWritten, it.t1);
+    if (it.page === PAGE_EXPERIENCE) expWritten = Math.max(expWritten, it.t1);
+    else written = Math.max(written, it.t1);
   }
-  // ...then, held a while, the leaf turned; and the page under it, once it
-  // lies bare, each position on its own.
-  const turnAt = firstWritten + TURN_HOLD;
-  const turnEnd = turnAt + TURN_DUR;
-  schedule(pages[PAGE_EXPERIENCE], Wp, (r) => (r === 0 ? turnEnd + EXP_HEADING_AT : 0), [], EXP_ROW_GAP);
-
-  const written = Math.max(...items.map((it) => it.t1));
   const pageSpan = written + DRY + FLOAT_AFTER[1];
   // Each clock only as long as its pages need, so G keeps its precision.
   const inkFrom = HEADING_AT - 0.5;
-  const inkTo = firstWritten + 1;
-  const inkFrom2 = turnEnd + EXP_HEADING_AT - 0.5;
-  const inkTo2 = written + 1;
+  const inkTo = written + 1;
+  const inkFrom2 = EXP_HEADING_AT - 0.5;
+  const inkTo2 = expWritten + 1;
   const byte = (page: number, t: number) => {
     const late = page === PAGE_EXPERIENCE;
     const from = late ? inkFrom2 : inkFrom;
@@ -634,6 +628,7 @@ export function bakeSpread(W: number, H: number): SpreadInk | null {
       y: (it.y - (it.kind === "text" ? it.size * 0.32 : 0)) / H,
       t0: it.t0,
       t1: it.t1,
+      late: it.page === PAGE_EXPERIENCE,
     });
   }
   return {
@@ -643,10 +638,10 @@ export function bakeSpread(W: number, H: number): SpreadInk | null {
     inkTo,
     inkFrom2,
     inkTo2,
-    turnAt,
-    turnEnd,
     written,
     span: pageSpan,
+    expWritten,
+    expSpan: expWritten + DRY,
   };
 }
 
@@ -672,34 +667,20 @@ export function pageCalm(ink: SpreadInk | null, p: number) {
   return span(p, at + FLOAT_AFTER[0], at + FLOAT_AFTER[1]);
 }
 
-/** How far Education has faded from the left-hand page at page time `p`,
- *  0..1: none until the right-hand leaf is on its way over. */
-export function educationFade(ink: SpreadInk | null, p: number) {
-  if (!ink) return 0;
-  const q = span(p - ink.turnAt, EDU_FADE[0], EDU_FADE[1]);
-  return q * q * (3 - 2 * q);
-}
-
 /**
- * The candlelight at page time `p`: across the whole spread first, and
- * again, once the leaf lies over, across the page it laid bare, from the
- * gutter out. out: [x, y, how bright], x and y as for a Stroke, running off
- * the pages at both sides.
+ * The candlelight: across the whole spread first, at page time `p`; or, if
+ * `e` (Experience's own clock) is past 0, across the page the turned leaf
+ * laid bare, from the gutter out. out: [x, y, how bright], x and y as for a
+ * Stroke, running off the pages at both sides.
  */
-export function candleAt(
-  ink: SpreadInk | null,
-  p: number,
-  time: number,
-  out: number[]
-) {
-  const after = ink ? p - ink.turnEnd : -1;
-  const again = after > 0;
+export function candleAt(p: number, e: number, time: number, out: number[]) {
+  const again = e > 0;
   const q = again
-    ? span(after, EXP_CANDLE[0], EXP_CANDLE[1])
+    ? span(e, EXP_CANDLE[0], EXP_CANDLE[1])
     : span(p, CANDLE[0], CANDLE[1]);
-  const e = 0.5 - 0.5 * Math.cos(Math.PI * q);
-  out[0] = again ? lerp(0.8, 2.25, e) : lerp(-0.2, 2.2, e);
-  out[1] = lerp(0.26, 0.44, e) - 0.04 * Math.sin(Math.PI * e);
+  const k = 0.5 - 0.5 * Math.cos(Math.PI * q);
+  out[0] = again ? lerp(0.8, 2.25, k) : lerp(-0.2, 2.2, k);
+  out[1] = lerp(0.26, 0.44, k) - 0.04 * Math.sin(Math.PI * k);
   const flicker =
     1 +
     0.06 * Math.sin(time * 9.3) * Math.sin(time * 5.1 + 0.7) +
@@ -708,14 +689,16 @@ export function candleAt(
   out[2] = Math.pow(Math.sin(Math.PI * q), 0.8) * flicker;
 }
 
-/** Where the pens are at page time `p`: the fronts of the lines being
- *  written, as [x, y] pairs into `out`. Returns how many. */
-export function pensAt(ink: SpreadInk, p: number, out: number[]) {
+/** Where the pens are at page time `p` and Experience's time `e`: the
+ *  fronts of the lines being written, as [x, y] pairs into `out`. Returns
+ *  how many. */
+export function pensAt(ink: SpreadInk, p: number, e: number, out: number[]) {
   let n = 0;
   for (const s of ink.strokes) {
-    if (p <= s.t0 || p >= s.t1) continue;
+    const c = s.late ? e : p;
+    if (c <= s.t0 || c >= s.t1) continue;
     if ((n + 1) * 2 > out.length) break;
-    const f = (p - s.t0) / (s.t1 - s.t0);
+    const f = (c - s.t0) / (s.t1 - s.t0);
     out[n * 2] = s.x0 + (s.x1 - s.x0) * f;
     out[n * 2 + 1] = s.y;
     n++;

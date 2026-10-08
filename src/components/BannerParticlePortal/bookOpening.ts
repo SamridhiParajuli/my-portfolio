@@ -6,7 +6,7 @@
  * knows it is being watched.
  *
  * On its clock, which runs faster than real time (see paceAt), so that
- * it is open about 3.4 s after the click:
+ * it is open about 2.6 s after the click:
  *   0.0  it holds still -- its float stills, as if it had heard. (The
  *        painted book hands over here to the live one, pose for pose.)
  *   0.3  a warm, golden light comes up round it, and the motes nearest it
@@ -27,26 +27,31 @@
  *        it was made from, and holds quite still.
  * From there the clock runs on at the pace of real time while the spread
  * -- Education on the left, Certifications on the right -- is written in
- * (bookSpread). Held a while, its right-hand leaf is turned: it lifts from
- * the spine, its fore-edge still resting, stands all but balanced on its
- * end, and falls over onto the left-hand page, the air under it letting
- * its fore-edge down last -- throwing its shadow on the pages as it goes,
- * and laying bare the one beneath, where Experience is written. Education
- * fades from its page meanwhile, gently, a few motes rising off it, and
- * the leaf comes down blank-backed over where it was. Once Experience is
- * written, the book floats again.
+ * (bookSpread), and then waits, the book floating again, for the reader.
  *
- * Then, once that has lain a while, the finale (bookFinale): a bird comes
- * for it out of the dark, lands on it, takes it up, and as it is carried
- * off the book gives itself up -- its leather burning back to motes, its
- * leaves pressed into one sheet of parchment that rolls itself up -- and
- * the scroll it has become is brought back, let go, and opens on the last
- * page (contactPage). The live book draws that too, the parchment as one
- * more part of it; and over it, the bird.
+ * The reader turns the page (a click on it, or on the line under the book,
+ * or a scroll on): its right-hand leaf lifts from the spine, its fore-edge
+ * still resting, stands all but balanced on its end, and falls over onto
+ * the left-hand page, the air under it letting its fore-edge down last --
+ * throwing its shadow on the pages as it goes, and laying bare the one
+ * beneath, where Experience is written. Education fades from its page
+ * meanwhile, a few motes rising off it, and the leaf comes down
+ * blank-backed over where it was. Turned back, it goes the same way in the
+ * mirror, and Education comes back into its page. The leaf keeps its own
+ * state (`leaf`), not the clock's, and Experience its own clock (`expP`).
  *
- * All of it is a function of one clock, `t`. Scrolling back up runs that
- * clock backwards (a good deal faster) so the ink goes and the book shuts
- * before the universe takes it apart again.
+ * Then, when the reader goes on from Experience, the finale (bookFinale):
+ * a bird comes for it out of the dark, lands on it, takes it up, and as it
+ * is carried off the book gives itself up -- its leather burning back to
+ * motes, its leaves pressed into one sheet of parchment that rolls itself
+ * up -- and the scroll it has become is brought back, let go, and opens on
+ * the last page (contactPage). The live book draws that too, the parchment
+ * as one more part of it; and over it, the bird. Scrolled back from, it is
+ * all undone, quickly, back to the open book.
+ *
+ * The rest is a function of one clock, `t`. Scrolling back up from the
+ * first spread runs that clock backwards (a good deal faster) so the ink
+ * goes and the book shuts before the universe takes it apart again.
  */
 
 import {
@@ -89,15 +94,19 @@ import {
   type BookView,
 } from "./bookGL";
 import { blitGlow, viewInteriorMote, type JourneyWorld } from "./blackHoleJourney";
-import { eduRestFrame, type EduBook, type EduOverride } from "./educationBook";
+import {
+  EDU_WHOLE,
+  eduBounceReach,
+  eduRestFrame,
+  type EduBook,
+  type EduOverride,
+} from "./educationBook";
 import {
   PAGE_CERTIFICATIONS,
   PAGE_EDUCATION,
   PAGE_EXPERIENCE,
-  TURN_DUR,
   bakeSpread,
   candleAt,
-  educationFade,
   loadPageFont,
   pageCalm,
   pensAt,
@@ -131,6 +140,7 @@ import {
   contactInkSize,
   contactPens,
   contactToSheet,
+  loadScrollFonts,
   type ContactInk,
 } from "./contactPage";
 import { drawBird } from "./nightBird";
@@ -148,9 +158,9 @@ const CLOSE_RATE = 4;
 /** Opening runs the clock this many times faster than real time: quickest
  *  through the stillness before the board moves, so the click is answered
  *  at once, then easing to a pace that still lets it go over with its
- *  weight. All told it opens in about 3.4 s. */
-const PACE_START = 3.2;
-const PACE_SWING = 2.6;
+ *  weight. All told it opens in about 2.6 s. */
+const PACE_START = 4.2;
+const PACE_SWING = 3.4;
 function paceAt(t: number) {
   // Once it lies open, the spread is written at the pace of real time.
   if (t >= OPEN_END) return 1;
@@ -184,6 +194,18 @@ const FIN_DEPTH = 2.6;
 /** The candle's reach over the parchment, and how bright it is at most. */
 const CONTACT_CANDLE_R = 0.3;
 const CONTACT_CANDLE_K = 0.5;
+/** Seconds a leaf the reader turns takes to go over (or back); and, as the
+ *  book shuts, to go back. */
+const TURN_S = 1.15;
+const TURN_CLOSE_S = 0.45;
+/** How far over the leaf is before the page it lays bare begins to be
+ *  written. */
+const EXP_FROM = 0.75;
+/** Shutting runs Experience's clock back at least this many times faster. */
+const EXP_CLOSE_RATE = 10;
+/** The line under the book comes up this long after the pages it offers to
+ *  turn from have been written. */
+const CUE_AFTER = 0.2;
 
 /** The board comes away from the pages, then goes over. */
 const CRACK: [number, number] = [2.5, 3.35];
@@ -300,10 +322,10 @@ function spillAt(t: number) {
 }
 
 /* ------------------------------------------------------------------ *
- * The leaf turned, once the spread has been read (when, bookSpread says)
+ * The leaf the reader turns
  * ------------------------------------------------------------------ */
 
-/** How fast it goes over, `u` of the way through TURN_DUR: slow to lift,
+/** How fast it goes over, `u` of the way through its turn: slow to lift,
  *  as a leaf does that has lain a long time; slower again as it stands on
  *  its end, all but balanced; then falling, faster; then settling on the
  *  air under it. Worked into TURN_OF once. */
@@ -343,11 +365,34 @@ function turnSample(a: Float64Array, u: number) {
   return a[k] + (a[k + 1] - a[k]) * (f - k);
 }
 
-/** How far through its turn the leaf is at clock `t`, 0..1. */
-function leafTurnAt(o: BookOpening, t: number) {
-  const ink = o.ink;
-  if (!ink) return 0;
-  return span(t - OPEN_END, ink.turnAt, ink.turnAt + TURN_DUR);
+/** How far through the way it is going the leaf is, 0..1: through the turn
+ *  over to the left, or -- once it has lain over, and is turned back --
+ *  through the same turn in the mirror, back to the right. */
+function leafU(o: BookOpening) {
+  return o.leafDir > 0 ? o.leaf : 1 - o.leaf;
+}
+
+/** How far over the leaf is, 0 (lying to the right) .. pi. */
+function leafAngle(o: BookOpening) {
+  const a = turnSample(TURN_OF, leafU(o));
+  return o.leafDir > 0 ? a : Math.PI - a;
+}
+
+/** How far Education has faded from the left-hand page, 0..1: going as
+ *  the leaf goes over to cover it, and coming back as it is turned away. */
+function educationFade(o: BookOpening) {
+  return smoothstep(0.12 * Math.PI, 0.72 * Math.PI, leafAngle(o));
+}
+
+/** The leaf as it is now, into `s`: going over, or coming back the same
+ *  way in the mirror. */
+function leafShape(o: BookOpening, s: Slab) {
+  turnLeaf(s, leafU(o));
+  if (o.leafDir < 0) {
+    s.turn = Math.PI - s.turn;
+    s.curl = -s.curl;
+    s.wave = -s.wave;
+  }
 }
 
 /** The turned leaf `u` of the way through its turn, into `s`. */
@@ -368,8 +413,7 @@ function turnLeaf(s: Slab, u: number) {
   const land = -0.22 * smoothstep(0.72, 0.9, u) * (1 - smoothstep(0.9, 1, u));
   s.turn = turn;
   s.curl = -2.55 * turn * hold + (1 - hold) * (drag + sag + land);
-  s.wave =
-    0.045 * Math.sin(2 * Math.PI * 1.4 * u * TURN_DUR) * free * (1 - hold);
+  s.wave = 0.045 * Math.sin(2 * Math.PI * 1.8 * u) * free * (1 - hold);
 }
 
 /* ------------------------------------------------------------------ */
@@ -444,6 +488,19 @@ export type BookOpening = {
   /** The clock, and whether it is running forward. */
   t: number;
   wanted: boolean;
+  /** The leaf the reader turns: how far over it is (0 lying on the right,
+   *  1 over on the left), which way it went from rest (+1 over, -1 back --
+   *  which turn it is making; see leafU), and where the reader wants it. */
+  leaf: number;
+  leafDir: number;
+  leafWant: number;
+  /** Experience's own clock: seconds it has been written for, from when
+   *  the leaf first laid it bare. */
+  expP: number;
+  /** The reader has gone on from Experience: the finale is to play. */
+  finWanted: boolean;
+  /** Where the line under the open book stands (CSS px from the top). */
+  cueY: number;
   /** The chapter the menu has cut to, while the clock is still being put
    *  there (see seekBookOpening); null otherwise. */
   seek: BookChapter | null;
@@ -474,6 +531,8 @@ export type BookOpening = {
    *  it is set into, and for a page how tall on screen; how tall a page is
    *  now; and where the pens are. */
   pageFont: "idle" | "loading" | "ready";
+  /** The scroll's faces (contactPage), likewise. */
+  scrollFont: "idle" | "loading" | "ready";
   ink: SpreadInk | null;
   inkFor: number;
   pagePx: number;
@@ -558,11 +617,20 @@ export function createBookOpening(): BookOpening {
       inkCOn: 0,
       inkCT: [0, 1],
       sheetMap: "paper",
+      age: 0,
+      rag: 0,
+      rods: 0,
       book: true,
       depthR: 1.9,
     },
     t: 0,
     wanted: false,
+    leaf: 0,
+    leafDir: 1,
+    leafWant: 0,
+    expP: 0,
+    finWanted: false,
+    cueY: NaN,
     seek: null,
     hovering: false,
     hover: 0,
@@ -585,6 +653,7 @@ export function createBookOpening(): BookOpening {
     palBank: null,
     lastTurn: new Float64Array(NSLAB),
     pageFont: "idle",
+    scrollFont: "idle",
     ink: null,
     inkFor: 0,
     pagePx: 0,
@@ -775,6 +844,12 @@ function prepareFinale(o: BookOpening, b: EduBook) {
   if (!o.parchMap && !o.parchWorker && !o.parchBake && !o.parchFailed) {
     startParch(o, art.bookPx, b.res);
   }
+  if (o.scrollFont === "idle") {
+    o.scrollFont = "loading";
+    void loadScrollFonts().then(() => {
+      o.scrollFont = "ready";
+    });
+  }
   if (o.parchBake && !o.parchMap && o.parchBake.step(4)) {
     o.parchMap = o.parchBake.result();
     o.parchBake = null;
@@ -790,11 +865,11 @@ function prepareFinale(o: BookOpening, b: EduBook) {
   ) {
     o.contact = null;
   }
-  // (Set while the book lies still, its last page written and drying, so
-  // the moment it takes is never seen.)
+  // (Set while the book lies still, its spread written and drying, so the
+  // moment it takes is never seen.)
   if (
     !o.contact &&
-    o.pageFont === "ready" &&
+    o.scrollFont === "ready" &&
     o.ink &&
     o.t - OPEN_END > o.ink.written + 0.8
   ) {
@@ -926,35 +1001,150 @@ export function requestBookOpen(o: BookOpening) {
 export type BookChapter = "education" | "experience" | "contact";
 
 /** Where on the clock the menu cuts to for each chapter: the spread lying
- *  open and blank, about to be written; the leaf coming down over the
- *  page Experience is written on; the scroll unrolling, a moment before
- *  Contact is written on it. Infinity until it can be known (the spread
- *  not yet set). */
+ *  open and blank, about to be written; the spread written (the leaf is
+ *  put coming down over the page Experience is written on); the scroll
+ *  unrolling, a moment before Contact is written on it. Infinity until it
+ *  can be known (the spread not yet set). */
 function chapterAt(o: BookOpening, chapter: BookChapter) {
   if (chapter === "education") return OPEN_END;
   if (!o.ink) return Infinity;
-  if (chapter === "experience") return OPEN_END + o.ink.turnEnd - 0.6;
+  if (chapter === "experience") return OPEN_END + o.ink.span;
   return OPEN_END + o.ink.span + CONTACT_AT - 2;
 }
 
 /** The chapter the book is at now (a closed book is Education's). */
 export function bookChapter(o: BookOpening): BookChapter {
-  if (!o.ink) return "education";
   if (finC(o, o.t) >= TAKE) return "contact";
-  if (o.t - OPEN_END >= o.ink.turnAt + TURN_DUR / 2) return "experience";
+  if (o.leaf >= 0.5) return "experience";
   return "education";
 }
 
 /**
  * The menu: open the book (if it is not) and put the clock at `chapter`,
- * forward or back. It is put there at once, as far as what has been made
- * ready allows, and waits on the rest at the same points the clock always
- * waits at -- the cut that hides it lifts once it is there (`o.seek` null).
+ * forward or back, and the leaf where that chapter has it. It is put there
+ * at once, as far as what has been made ready allows, and waits on the
+ * rest at the same points the clock always waits at -- the cut that hides
+ * it lifts once it is there (`o.seek` null).
  */
 export function seekBookOpening(o: BookOpening, chapter: BookChapter) {
   if (o.noGL) return;
   o.wanted = true;
   o.seek = chapter;
+  o.finWanted = chapter === "contact";
+  o.leafDir = 1;
+  if (chapter === "education") {
+    o.leaf = 0;
+    o.leafWant = 0;
+  } else if (chapter === "experience") {
+    o.leaf = 0.78;
+    o.leafWant = 1;
+    o.expP = 0;
+  } else {
+    o.leaf = 1;
+    o.leafWant = 1;
+    // (All of it written: held to its end once that is known.)
+    o.expP = 1e3;
+  }
+}
+
+/** The book lies open and is being read: its leaf can be turned. */
+function reading(o: BookOpening) {
+  return o.wanted && !o.seek && !o.noGL && o.t >= OPEN_END;
+}
+
+/** All of Experience has been written. */
+function expDone(o: BookOpening) {
+  return Boolean(o.ink && o.expP >= o.ink.expWritten);
+}
+
+/**
+ * The reader turns the page: over (+1), to Experience, or back (-1), to
+ * the first spread. True if that is the way it is going now.
+ */
+export function turnBookPage(o: BookOpening, dir: number) {
+  if (!reading(o) || o.finWanted || finC(o, o.t) > 0) return false;
+  o.leafWant = dir > 0 ? 1 : 0;
+  return true;
+}
+
+/** The reader goes on from Experience: the finale. True if it is to play. */
+export function continueBook(o: BookOpening) {
+  if (!reading(o) || o.leafWant !== 1 || o.leaf < 1 || !expDone(o)) return false;
+  o.finWanted = true;
+  return true;
+}
+
+/**
+ * One scroll at the book (+1 on, -1 back): what it does here -- over to
+ * Experience, then on to the finale; back from the finale, then back to the
+ * first spread. `act` false only asks. False where it is not the book's: a
+ * scroll back from the first spread is the journey's (it shuts the book,
+ * and goes back the way it came), and one on at a shut book the page's.
+ */
+export function bookStep(o: BookOpening, dir: number, act: boolean) {
+  if (!o.wanted || o.seek || o.noGL) return false;
+  // Still opening: a scroll on waits for it.
+  if (o.t < OPEN_END) return dir > 0;
+  if (dir > 0) {
+    if (act && !o.finWanted) {
+      if (o.leafWant === 0) o.leafWant = 1;
+      else continueBook(o);
+    }
+    return true;
+  }
+  if (o.finWanted || finC(o, o.t) > 0) {
+    if (act) o.finWanted = false;
+    return true;
+  }
+  if (o.leafWant === 1 || o.leaf > 0) {
+    if (act) o.leafWant = 0;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * The leaf, toward where the reader wants it -- once the book lies open,
+ * and not while the menu is putting it somewhere -- or back onto its page,
+ * quickly, as the book shuts. And Experience's clock: on while its page lies
+ * bare, back as the book shuts.
+ */
+function tickLeaf(o: BookOpening, dt: number, forward: boolean) {
+  let to = o.leaf;
+  let rate = 1 / TURN_S;
+  if (!forward) {
+    to = 0;
+    rate = 1 / TURN_CLOSE_S;
+  } else if (o.t >= OPEN_END && !o.seek) {
+    to = o.leafWant;
+  }
+  if (to !== o.leaf) {
+    // A turn from rest: over from the right, or back from the left. (One
+    // changed mid-way goes back the way it came.)
+    if (o.leaf <= 0) o.leafDir = 1;
+    else if (o.leaf >= 1) o.leafDir = -1;
+    o.leaf =
+      to > o.leaf
+        ? Math.min(to, o.leaf + dt * rate)
+        : Math.max(to, o.leaf - dt * rate);
+  }
+  const ink = o.ink;
+  if (!ink) return;
+  const most = ink.expSpan;
+  if (o.expP > most) o.expP = most;
+  if (!forward) {
+    o.expP = Math.max(0, o.expP - dt * Math.max(EXP_CLOSE_RATE, most / PAGE_CLOSE_S));
+  } else if (o.leaf >= EXP_FROM && o.t >= OPEN_END && pageReady(o)) {
+    o.expP = Math.min(most, o.expP + dt);
+  }
+}
+
+/** How fast the finale is undone: quickly, within FIN_CLOSE_S at most. */
+function finBackRate(o: BookOpening) {
+  return Math.max(
+    FIN_CLOSE_RATE,
+    (o.contact ? finaleSpan(o.contact.span) : 30) / FIN_CLOSE_S
+  );
 }
 
 /**
@@ -971,7 +1161,7 @@ export function tickBookOpening(
 ) {
   prepare(o, b);
   const closed = o.t <= 0 && !o.wanted;
-  const canOpen = closed && eduE >= 1 && eduTarget >= 0.999 && !o.noGL;
+  const canOpen = closed && eduE >= EDU_WHOLE && eduTarget >= 0.999 && !o.noGL;
   o.hover +=
     ((o.hovering && canOpen ? 1 : 0) - o.hover) * (1 - Math.exp(-dt * 5));
 
@@ -1000,34 +1190,43 @@ export function tickBookOpening(
     if (!ready(o)) next = Math.min(next, WAIT_AT);
     // It lies open, still, until the spread can be written.
     if (!pageReady(o)) next = Math.min(next, OPEN_END);
-    // ...and once it is written, until the finale can be had, if it is not
-    // yet; then the finale, to its end.
+    // ...and once it is written, it waits on the reader. Once they have
+    // turned to Experience and gone on from it, the finale -- when all of it
+    // can be had -- to its end.
     const pageEnd = OPEN_END + (o.ink ? o.ink.span : 0);
     const end =
-      o.ink && o.contact && finaleReady(o)
+      o.finWanted && o.leaf >= 1 && o.ink && o.contact && finaleReady(o)
         ? pageEnd + finaleSpan(o.contact.span)
         : pageEnd;
-    o.t = Math.min(end, next);
+    if (o.t > end) {
+      // Gone back from the finale: all of it undone, quickly, to the book
+      // lying open at Experience.
+      o.t = Math.max(end, o.t - dt * finBackRate(o));
+    } else {
+      o.t = Math.min(end, next);
+    }
     if (o.seek && o.t >= chapterAt(o, o.seek)) o.seek = null;
   } else if (o.t > 0) {
+    o.finWanted = false;
     const pageEnd = OPEN_END + (o.ink ? o.ink.span : 0);
     const rate =
       o.ink && o.t > pageEnd
-        ? Math.max(
-            FIN_CLOSE_RATE,
-            (o.contact ? finaleSpan(o.contact.span) : 30) / FIN_CLOSE_S
-          )
+        ? finBackRate(o)
         : o.t > OPEN_END
           ? Math.max(PAGE_CLOSE_RATE, (o.ink ? o.ink.span : 0) / PAGE_CLOSE_S)
           : CLOSE_RATE;
     // (Never back past where the finale began in the same step as the
-    // finale itself: the page part keeps its own pace.)
-    const back = o.t - dt * rate;
-    o.t = Math.max(0, o.ink && o.t > pageEnd ? Math.max(pageEnd, back) : back);
+    // finale itself: the page part keeps its own pace. Nor does it shut
+    // while its leaf is still on its way back.)
+    let back = o.t - dt * rate;
+    if (o.ink && o.t > pageEnd) back = Math.max(pageEnd, back);
+    if (o.leaf > 0) back = Math.max(back, Math.min(o.t, OPEN_END));
+    o.t = Math.max(0, back);
     if (o.t <= 0) o.wanted = false;
   } else {
     o.wanted = false;
   }
+  tickLeaf(o, dt, forward);
   return o.t > 0 || forward;
 }
 
@@ -1046,7 +1245,9 @@ export function openingDolly(o: BookOpening) {
   return easeInOutSine(span(o.t, 0.9, 8.9)) + (c > 0 ? finaleDolly(c) : 0);
 }
 
-/** Where to catch the click: over the closed book, while it can open. */
+/** Where to catch the click: over the closed book, from the moment it reads
+ *  as whole, while it can open -- held still, and reaching up over the
+ *  height it bounces to, so a click on it is never missed. */
 export function bookHitRect(
   o: BookOpening,
   b: EduBook,
@@ -1056,17 +1257,23 @@ export function bookHitRect(
 ): [number, number, number, number] | null {
   const art = b.art;
   if (!art || o.noGL || o.t > 0 || o.wanted) return null;
-  if (eduE < 1 || eduTarget < 0.999) return null;
-  const fr = eduRestFrame(b, time, 1);
+  if (eduE < EDU_WHOLE || eduTarget < 0.999) return null;
+  const fr = eduRestFrame(b, time, 0);
+  const reach = eduBounceReach(b);
   const w = art.w * fr.k * 0.86;
   const h = art.h * fr.k * 0.9;
-  return [fr.x - w / 2, fr.y - h / 2, w, h];
+  return [fr.x - w / 2, fr.y - h / 2 - reach, w, h + reach];
 }
 
 /** Shuts it at once, with no animation: the scroll has left the book. */
 export function resetBookOpening(o: BookOpening, w: JourneyWorld | null) {
   o.t = 0;
   o.wanted = false;
+  o.leaf = 0;
+  o.leafDir = 1;
+  o.leafWant = 0;
+  o.expP = 0;
+  o.finWanted = false;
   o.seek = null;
   o.hover = 0;
   o.dust.length = 0;
@@ -1158,7 +1365,7 @@ function shapeAt(o: BookOpening, t: number) {
     inkBack: -1,
     caster: true,
   });
-  turnLeaf(s[TURN_LEAF], leafTurnAt(o, t));
+  leafShape(o, s[TURN_LEAF]);
   o.shape.cover = coverTurn(t);
   // The spine rolls under as the block opens across it: half as far as
   // the middle of the half that goes over.
@@ -1397,7 +1604,9 @@ export function frameBookOpening(
   ensureFit(o, b, art);
   if (fin) {
     const g = gripRest();
-    finaleAt(o.fin, c, g, finalFraming(o, b, art).z, pitchOpen, o.small);
+    // (On a tall screen the bird takes it round mostly in depth.)
+    const reach = clamp((o.cssW / Math.max(1, o.cssH) - 0.6) / 0.9, 0.22, 1);
+    finaleAt(o.fin, c, g, finalFraming(o, b, art).z, pitchOpen, o.small, reach);
   }
   const { open, kk } = poseAt(o, b, art, t, time);
   project(lerp(-0.03, X0 - T, open), 0.02, 0, P3);
@@ -1438,14 +1647,15 @@ export function renderBookOpening(o: BookOpening, b: EduBook, time: number) {
   const v = o.view;
   // The shape only changes while something is moving.
   const st = clamp(t, CRACK[0], SHAPE_END);
-  const tu = leafTurnAt(o, t);
+  // (Which turn the leaf is making, and how far over it is.)
+  const tu = o.leaf * o.leafDir;
   // ...and once the bird has it, as the book goes into the parchment.
   const c = finC(o, t);
   const ff = o.fin.frame;
   const sh = o.fin.sheet;
   const sheetOn = c > 0 && ff.sheetOn;
   const fkey = sheetOn
-    ? `${ff.bookOn ? 1 : 0}:${sh.flat}:${sh.lh}:${sh.ell}:${sh.parch ? 1 : 0}`
+    ? `${ff.bookOn ? 1 : 0}:${sh.flat}:${sh.lh}:${sh.ell}:${sh.parch ? 1 : 0}:${sh.rods ? 1 : 0}`
     : "";
   if (st !== o.builtAt || tu !== o.builtTurn || fkey !== o.builtSheet) {
     shapeAt(o, t);
@@ -1521,17 +1731,18 @@ export function renderBookOpening(o: BookOpening, b: EduBook, time: number) {
     const k = ink.inkTo - ink.inkFrom;
     v.inkT[0] = (p - ink.inkFrom) / k;
     v.inkT[1] = k;
+    // (Experience on its own clock.)
     const k2 = ink.inkTo2 - ink.inkFrom2;
-    v.inkT2[0] = (p - ink.inkFrom2) / k2;
+    v.inkT2[0] = (o.expP - ink.inkFrom2) / k2;
     v.inkT2[1] = k2;
   }
-  v.fade = educationFade(ink, p);
-  candleAt(ink, p, time, CD);
+  v.fade = educationFade(o);
+  const ck = candleNow(o, p, time);
   spreadPoint(o, CD[0], CD[1], PQ);
   v.candle[0] = PQ[0];
   v.candle[1] = PQ[1];
   v.candle[2] = CANDLE_R;
-  v.candle[3] = p > 0 ? CANDLE_K * CD[2] : 0;
+  v.candle[3] = p > 0 ? CANDLE_K * ck : 0;
   // The turned leaf's shadow, from the key light as the book's own frame
   // has it (R takes the book to the world, so back is its transpose) --
   // and none while it lies flat, either side, nor until the gap under its
@@ -1540,7 +1751,8 @@ export function renderBookOpening(o: BookOpening, b: EduBook, time: number) {
   v.leafL[0] = R[0] * key[0] + R[3] * key[1] + R[6] * key[2];
   v.leafL[1] = R[1] * key[0] + R[4] * key[1] + R[7] * key[2];
   v.leafL[2] = R[2] * key[0] + R[5] * key[1] + R[8] * key[2];
-  v.leafL[3] = smoothstep(0.03, 0.22, tu) * (1 - smoothstep(0.9, 1, tu));
+  const lu = leafU(o);
+  v.leafL[3] = smoothstep(0.03, 0.22, lu) * (1 - smoothstep(0.9, 1, lu));
   // The finale: the book going into the parchment, and the parchment's own
   // page, and its own candle.
   const fin = c > 0;
@@ -1551,6 +1763,9 @@ export function renderBookOpening(o: BookOpening, b: EduBook, time: number) {
   v.ember = fin ? ff.ember : 0;
   v.book = !fin || ff.bookOn;
   v.sheetMap = fin && sh.parch ? "parch" : "paper";
+  v.age = fin ? ff.age : 0;
+  v.rag = fin ? ff.rag : 0;
+  v.rods = fin ? ff.rods : 0;
   v.depthR = fin ? FIN_DEPTH : 1.9;
   const ct = o.contact;
   const pc = fin ? ff.contactP : -1;
@@ -1578,6 +1793,15 @@ export function renderBookOpening(o: BookOpening, b: EduBook, time: number) {
 const CD = [0, 0, 0];
 const PQ = [0, 0, 0];
 const FP = [0, 0];
+
+/** The candlelight now, into CD, and how bright: over the first spread as
+ *  it is written, or over Experience as it is -- and only while that page
+ *  lies bare. */
+function candleNow(o: BookOpening, p: number, time: number) {
+  const onExp = o.expP > 0 && o.leaf >= 0.5;
+  candleAt(p, onExp ? o.expP : -1, time, CD);
+  return onExp ? CD[2] * smoothstep(EXP_FROM - 0.15, 1, o.leaf) : CD[2];
+}
 
 /**
  * A point of the written spread -- x from 0 at the left-hand page's outer
@@ -1912,28 +2136,32 @@ function emitDust(o: BookOpening, dt: number) {
       spawn(o, P3[0], P3[1], (rnd() - 0.5) * 4 * sc, -(4 + rnd() * 8) * sc, 5 + rnd() * 3.5, 0.7 + rnd() * 1.1, 0.25 + rnd() * 0.4, rnd() < 0.55 ? C_GOLD : rnd() < 0.5 ? C_PALE : C_EMBER);
     }
   }
-  // The leaf turned once the spread has been read: a breath of dust from
-  // under it as it lifts away from the page, more off its free edge as it
-  // goes over, and a little where it comes down.
+  // The leaf the reader turns: a breath of dust from under it as it lifts
+  // away from the page, more off its free edge as it goes over, and a
+  // little where it comes down -- whichever way it is going.
   const leaf = slabs[TURN_LEAF];
-  const tu = leafTurnAt(o, t);
+  const tu = o.leaf > 0 && o.leaf < 1 ? leafU(o) : 0;
   const was = o.lastTurn[TURN_LEAF];
   o.lastTurn[TURN_LEAF] = leaf.turn;
   if (tu > 0.03 && tu < 0.32) {
-    for (let n = due(o, 8, o.small ? 2.5 : 4.5, dt); n > 0; n--) {
+    for (let n = due(o, 8, o.small ? 8 : 14, dt); n > 0; n--) {
       slabPoint(leaf, roll, 0.3 + 0.65 * rnd(), PT);
       project(PT[0], -0.44 + 0.88 * rnd(), PT[1] - 0.004, P3);
       spawn(o, P3[0], P3[1], (rnd() - 0.5) * 8 * sc, -(3 + rnd() * 7) * sc, 2.6 + rnd() * 2, 0.5 + rnd() * 0.7, 0.3 + rnd() * 0.3, rnd() < 0.6 ? C_PALE : C_GOLD);
     }
   }
-  if (tu > 0.2 && tu < 0.9 && leaf.turn < Math.PI - 0.06) {
-    for (let n = due(o, 9, 3.4, dt); n > 0; n--) {
+  if (tu > 0.2 && tu < 0.9 && leaf.turn > 0.06 && leaf.turn < Math.PI - 0.06) {
+    for (let n = due(o, 9, 10, dt); n > 0; n--) {
       slabTip(leaf, roll, TIP);
       project(TIP[0], -0.44 + 0.88 * rnd(), TIP[1], P3);
       spawn(o, P3[0], P3[1], (rnd() - 0.5) * 12 * sc, -(3 + rnd() * 9) * sc, 2 + rnd() * 1.8, 0.6 + rnd() * 0.8, 0.35 + rnd() * 0.3, rnd() < 0.6 ? C_PALE : C_GOLD);
     }
   }
-  if (was < Math.PI - 0.05 && leaf.turn >= Math.PI - 0.05) {
+  const down =
+    o.leafDir > 0
+      ? was < Math.PI - 0.05 && leaf.turn >= Math.PI - 0.05
+      : was > 0.05 && leaf.turn <= 0.05;
+  if (down) {
     for (let n = 0; n < (o.small ? 5 : 9); n++) {
       slabPoint(leaf, roll, 0.35 + 0.65 * rnd(), PT);
       project(PT[0], -0.44 + 0.88 * rnd(), PT[1] + 0.01, P3);
@@ -1945,9 +2173,9 @@ function emitDust(o: BookOpening, dt: number) {
   const ink = o.ink;
   const p = t - OPEN_END;
   // And as Education fades, a few lift off what is left of it.
-  const fade = educationFade(ink, p);
-  if (ink && fade > 0.02 && fade < 0.95) {
-    for (let n = due(o, 10, o.small ? 1.2 : 2.4, dt); n > 0; n--) {
+  const fade = educationFade(o);
+  if (ink && o.leafDir > 0 && tu > 0 && fade > 0.02 && fade < 0.95) {
+    for (let n = due(o, 10, o.small ? 4 : 7, dt); n > 0; n--) {
       // (A stroke of it: the left-hand page's, x under 1.)
       let s = ink.strokes[Math.floor(rnd() * ink.strokes.length)];
       for (let k = 0; k < 6 && s.x1 > 1; k++) {
@@ -1983,8 +2211,14 @@ function emitDust(o: BookOpening, dt: number) {
       }
     }
   }
-  if (ink && p > 0 && p < ink.written + 0.5) {
-    const pens = pensAt(ink, p, o.pens);
+  // (Experience's pens only while its page lies bare.)
+  const ep = o.leaf >= EXP_FROM ? o.expP : -1;
+  if (
+    ink &&
+    p > 0 &&
+    (p < ink.written + 0.5 || (ep > 0 && ep < ink.expWritten + 0.5))
+  ) {
+    const pens = pensAt(ink, p, ep, o.pens);
     if (pens > 0) {
       for (let n = due(o, 6, o.small ? 1 : 1.7, dt); n > 0; n--) {
         const k = Math.floor(rnd() * pens);
@@ -1993,9 +2227,9 @@ function emitDust(o: BookOpening, dt: number) {
         spawn(o, P3[0], P3[1], (rnd() - 0.5) * 5 * sc, -(3 + rnd() * 6) * sc, 2.4 + rnd() * 2, 0.4 + rnd() * 0.45, 0.3 + rnd() * 0.3, rnd() < 0.6 ? C_GOLD : C_PALE);
       }
     }
-    candleAt(ink, p, 0, CD);
-    if (CD[2] > 0.15) {
-      for (let n = due(o, 7, (o.small ? 0.6 : 1.1) * CD[2], dt); n > 0; n--) {
+    const ck = candleNow(o, p, 0);
+    if (ck > 0.15) {
+      for (let n = due(o, 7, (o.small ? 0.6 : 1.1) * ck, dt); n > 0; n--) {
         spreadPoint(o, CD[0] + (rnd() - 0.5) * 0.4, CD[1] + (rnd() - 0.5) * 0.35, PQ);
         project(PQ[0], PQ[1], PQ[2] + 0.02 + rnd() * 0.04, P3);
         spawn(o, P3[0], P3[1], (rnd() - 0.5) * 6 * sc, -(2 + rnd() * 5) * sc, 3 + rnd() * 2.5, 0.35 + rnd() * 0.45, 0.22 + rnd() * 0.25, rnd() < 0.5 ? C_WARM : C_GOLD);
@@ -2041,8 +2275,12 @@ export function drawBookOpeningFront(
   }
   // As the right-hand leaf lifts away, a little of that light comes out
   // from under it too, from the page it laid bare -- gone again by the
-  // time it has gone over.
-  const breath = Math.sin(Math.PI * span(leafTurnAt(o, t), 0.04, 0.62));
+  // time it has gone over. (Only going over: turned back, it lays bare a
+  // page already read.)
+  const breath =
+    o.leafDir > 0 && o.leaf > 0 && o.leaf < 1
+      ? Math.sin(Math.PI * span(o.leaf, 0.04, 0.62))
+      : 0;
   if (breath > 0.003) {
     slabPoint(o.shape.slabs[TURN_LEAF], o.shape.roll, 0.6, PT);
     project(Math.max(PT[0], X0 + 0.12), 0.03, PT[1] * 0.5, P3);
@@ -2149,5 +2387,92 @@ function placeLinks(o: BookOpening) {
  *  where each goes. */
 export function contactLinks(o: BookOpening) {
   return o.links;
+}
+
+type Rect = [number, number, number, number];
+
+/** What the open book offers the reader this frame (see bookPageUI). */
+export type BookPageUI = {
+  /** Over the left-hand page and the right, CSS px: where a click turns
+   *  the leaf back, or over. Null where a click does nothing now. */
+  prev: Rect | null;
+  next: Rect | null;
+  /** What the line under the book offers now: to turn the page over, to
+   *  turn it back, to go on. */
+  cueNext: boolean;
+  cueBack: boolean;
+  cueOn: boolean;
+  /** Where that line stands, CSS px from the top (NaN until it has). */
+  cueY: number;
+};
+
+const UI: BookPageUI = {
+  prev: null,
+  next: null,
+  cueNext: false,
+  cueBack: false,
+  cueOn: false,
+  cueY: NaN,
+};
+const RECT_L: Rect = [0, 0, 0, 0];
+const RECT_R: Rect = [0, 0, 0, 0];
+
+/** A page of the open spread on screen, as the book lies this frame. */
+function pageRect(o: BookOpening, right: boolean, out: Rect) {
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const sx of right ? [1, 1.5, 2] : [0, 0.5, 0.999]) {
+    for (const py of [0, 1]) {
+      spreadPoint(o, sx, py, PQ);
+      project(PQ[0], PQ[1], PQ[2], P3);
+      x0 = Math.min(x0, P3[0]);
+      y0 = Math.min(y0, P3[1]);
+      x1 = Math.max(x1, P3[0]);
+      y1 = Math.max(y1, P3[1]);
+    }
+  }
+  out[0] = x0;
+  out[1] = y0;
+  out[2] = x1 - x0;
+  out[3] = y1 - y0;
+}
+
+/**
+ * While the book lies open to be read: where a click on its pages turns
+ * the leaf, and what the line under it offers. Worked from the frame just
+ * drawn. (Nothing while it opens or shuts, nor once it has gone on to the
+ * finale.)
+ */
+export function bookPageUI(o: BookOpening): BookPageUI {
+  UI.prev = null;
+  UI.next = null;
+  UI.cueNext = false;
+  UI.cueBack = false;
+  UI.cueOn = false;
+  const ink = o.ink;
+  if (!ink || !o.shown || !reading(o) || o.finWanted || finC(o, o.t) > 0) {
+    UI.cueY = o.cueY;
+    return UI;
+  }
+  pageRect(o, false, RECT_L);
+  pageRect(o, true, RECT_R);
+  // The line stands a little under the spread -- kept where it is through
+  // the book's float, moved only if the book has been laid out anew.
+  const y =
+    Math.max(RECT_L[1] + RECT_L[3], RECT_R[1] + RECT_R[3]) + 0.04 * o.cssH;
+  if (Number.isNaN(o.cueY) || Math.abs(y - o.cueY) > 6) o.cueY = y;
+  UI.cueY = Math.min(o.cueY, o.cssH - 56);
+  const still = o.leaf === o.leafWant;
+  if (o.leafWant === 0) {
+    UI.next = RECT_R;
+    UI.cueNext = still && o.t - OPEN_END >= ink.written + CUE_AFTER;
+  } else {
+    UI.prev = RECT_L;
+    UI.cueBack = still;
+    UI.cueOn = still && o.expP >= ink.expWritten + CUE_AFTER;
+  }
+  return UI;
 }
 

@@ -1,11 +1,13 @@
 /**
  * contactPage
  * -----------
- * What the parchment is written with once it lies open (bookFinale): the
- * last thing the book has to say. CONTACT, in the faded red of a rubric,
- * its rule drawn out under it, and then, one by one, the ways to write --
- * each named in red italic, as an old printer would rubricate a heading,
- * with the address under it in the brown of iron-gall ink.
+ * What the ancient scroll is written with once it lies open (bookFinale):
+ * the last thing the book has to say. First the scribe rules the page -- a
+ * double frame, brown and red, with a lozenge at each corner -- then
+ * "Contact", in a blackletter hand in the faded red of a rubric, its rule
+ * drawn out under it; and then, one by one, the ways to write -- each named
+ * in the red italic of the old Fell types, with the address under it in
+ * their roman, in the brown of iron-gall ink.
  *
  * Nothing here floats over the parchment: it is set once into a map the
  * book's own shader lays into the parchment as ink (bookGL), exactly as
@@ -13,9 +15,11 @@
  * whether it is red, and the moment the pen reaches it.
  *
  * Seconds from the moment the parchment lies open (its page clock):
+ *   0.25 the frame is ruled, from the middle of its head round both ways
+ *        to the middle of its foot;
  *   0.3  a warm light, like a candle carried past, crosses it;
- *   0.9  CONTACT is written as it goes by, and its rule under it;
- *   2.2  the entries: each name, then its address, one after another --
+ *   1.0  "Contact" is written as it goes by, and its rule under it;
+ *   2.3  the entries: each name, then its address, one after another --
  *        on a wide screen two to a row, the right one a beat behind;
  *  ~7.5  all of it written. The ink dries, and there it stays.
  */
@@ -61,7 +65,12 @@ const ASPECT = (2 * LH_FINAL) / (2 * YP);
 
 /** The light crosses the parchment over this. */
 const CANDLE: [number, number] = [0.3, 3.5];
-const HEADING_AT = 0.9;
+/** The frame: when the pen sets off round it, how long it takes, and how
+ *  far the inner rule follows the outer. */
+const FRAME_AT = 0.25;
+const FRAME_DUR = 1.1;
+const FRAME_LAG = 0.2;
+const HEADING_AT = 1.0;
 /** A heading takes this, and this much more for every sheet-height of it;
  *  a line likewise -- so the pen keeps one pace however wide the parchment
  *  opens. */
@@ -81,18 +90,19 @@ const DRY = 2;
  * How it is set, in fractions of the sheet's height
  * ------------------------------------------------------------------ */
 
-const HEAD_SIZE = 0.064;
-const HEAD_TRACK = 0.2;
-const LABEL_SIZE = 0.036;
-const VALUE_SIZE = 0.046;
+const HEAD_SIZE = 0.1;
+const LABEL_SIZE = 0.04;
+const VALUE_SIZE = 0.05;
 /** Where the middle of it all sits, down the sheet. */
 const BLOCK_Y = 0.48;
 
 export type ContactStroke = {
-  /** Map units: u across, v down. */
+  /** Map units: u across, v down -- from where the pen sets off to where
+   *  it ends. */
   u0: number;
   u1: number;
-  v: number;
+  v0: number;
+  v1: number;
   t0: number;
   t1: number;
 };
@@ -125,7 +135,7 @@ export type ContactInk = {
 };
 
 type Item = {
-  kind: "text" | "rule" | "lozenge";
+  kind: "text" | "rule" | "lozenge" | "line";
   text: string;
   font: string;
   track: number;
@@ -133,6 +143,10 @@ type Item = {
   x: number;
   y: number;
   w: number;
+  /** A line (of the frame) runs from (x, y) to (x2, y2); `size` is how
+   *  thick it is. */
+  x2: number;
+  y2: number;
   ink: number;
   red: boolean;
   t0: number;
@@ -149,11 +163,36 @@ function span(x: number, a: number, b: number) {
   return clamp((x - a) / (b - a), 0, 1);
 }
 
-function family() {
-  const v = getComputedStyle(document.documentElement)
-    .getPropertyValue("--font-book")
-    .trim();
-  return `${v ? `${v}, ` : ""}Garamond, "Times New Roman", serif`;
+function cssFont(name: string) {
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return v ? `${v}, ` : "";
+}
+/** The heading's blackletter, and the Fell types everything else is set in
+ *  (layout.tsx). */
+function headFamily() {
+  return `${cssFont("--font-scroll-head")}"UnifrakturMaguntia", "Old English Text MT", serif`;
+}
+function textFamily() {
+  return `${cssFont("--font-scroll")}"IM Fell English", Garamond, "Times New Roman", serif`;
+}
+
+/** Fetches the scroll's faces (resolves either way, and after 4 s at most:
+ *  it is set in whatever there is then). */
+export function loadScrollFonts(): Promise<void> {
+  if (typeof document === "undefined" || !document.fonts) {
+    return Promise.resolve();
+  }
+  const text = textFamily();
+  const all = Promise.all([
+    document.fonts.load(`400 48px ${headFamily()}`, "Contact"),
+    document.fonts.load(`400 48px ${text}`, "abcdefghijklmnopqrstuvwxyz.@/0123456789"),
+    document.fonts.load(`italic 400 48px ${text}`, "Email Phone LinkedIn GitHub"),
+  ]);
+  const late = new Promise((r) => window.setTimeout(r, 4000));
+  return Promise.race([all, late]).then(
+    () => undefined,
+    () => undefined
+  );
 }
 
 function widthOf(ctx: CanvasRenderingContext2D, text: string, track: number) {
@@ -192,7 +231,7 @@ export function bakeContact(
   canvas.height = H;
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
-  const fam = family();
+  const fam = textFamily();
   const items: Item[] = [];
   const text = (
     cx: number,
@@ -215,6 +254,8 @@ export function bakeContact(
       x: cx - w / 2,
       y,
       w,
+      x2: 0,
+      y2: 0,
       ink,
       red,
       t0: 0,
@@ -232,7 +273,22 @@ export function bakeContact(
     ink: number,
     red: boolean
   ) => {
-    const it: Item = { kind, text: "", font: "", track: 0, size, x: cx - w / 2, y, w, ink, red, t0: 0, t1: 0 };
+    const it: Item = { kind, text: "", font: "", track: 0, size, x: cx - w / 2, y, w, x2: 0, y2: 0, ink, red, t0: 0, t1: 0 };
+    items.push(it);
+    return it;
+  };
+  const line = (
+    x: number,
+    y: number,
+    x2: number,
+    y2: number,
+    th: number,
+    ink: number,
+    red: boolean,
+    t0: number,
+    t1: number
+  ) => {
+    const it: Item = { kind: "line", text: "", font: "", track: 0, size: th, x, y, w: 0, x2, y2, ink, red, t0, t1 };
     items.push(it);
     return it;
   };
@@ -241,25 +297,29 @@ export function bakeContact(
   const mid = W / 2;
   const showW = 2 * half * W;
   const pairs = showW / H > 1.25;
-  const colW = pairs ? showW * 0.44 : showW * 0.92;
+  // The frame ruled round it (see below), and what is left inside it.
+  const frameInset = (pairs ? 0.045 : 0.035) * H;
+  const frameGap = (pairs ? 0.016 : 0.012) * H;
+  const inside = showW - 2 * (frameInset + frameGap) - 0.05 * H;
+  const colW = pairs ? showW * 0.44 : Math.min(showW * 0.92, inside);
   const colX = pairs ? [mid - showW * 0.245, mid + showW * 0.245] : [mid];
 
   const headSize = HEAD_SIZE * H;
-  const headFont = `500 ${headSize}px ${fam}`;
+  const headFont = `400 ${headSize}px ${headFamily()}`;
   const labelSize = LABEL_SIZE * H;
-  const labelFont = `italic 500 ${labelSize}px ${fam}`;
+  const labelFont = `italic 400 ${labelSize}px ${fam}`;
   // Every address at one size: this, or less if the longest would not
   // fit its column.
   let valueSize = VALUE_SIZE * H;
-  ctx.font = `500 ${valueSize}px ${fam}`;
+  ctx.font = `400 ${valueSize}px ${fam}`;
   for (const e of CONTACT.entries) {
     const w = ctx.measureText(e.value).width;
     if (w > colW) valueSize *= colW / w;
   }
-  const valueFont = `500 ${valueSize}px ${fam}`;
+  const valueFont = `400 ${valueSize}px ${fam}`;
 
   // Set out from the heading's baseline at 0, and moved down after.
-  const head = text(mid, CONTACT.heading.toUpperCase(), headFont, headSize, 0, 0.92, true, headSize * HEAD_TRACK);
+  const head = text(mid, CONTACT.heading, headFont, headSize, 0, 0.95, true);
   const rule = mark(mid, "rule", 0.05 * H, Math.min(showW * 0.3, 0.42 * H), headSize, 0.8, true);
   type Row = { label: Item; value: Item; sep: Item | null; link: ContactEntry };
   const rows: Row[] = [];
@@ -286,6 +346,36 @@ export function bakeContact(
   const dy = BLOCK_Y * H - (top + bottom) / 2;
   for (const it of items) it.y += dy;
 
+  // The frame, ruled round what shows of the page: from the middle of its
+  // head, round both ways at once, to the middle of its foot -- the outer
+  // rule brown, the inner red, a lozenge at each of the outer's corners.
+  const frame = (inset: number, lag: number, th: number, red: boolean) => {
+    const fx = showW / 2 - inset;
+    const y0 = (pairs ? 0.075 : 0.05) * H + (inset - frameInset);
+    const y1 = H - y0;
+    const at = FRAME_AT + lag;
+    const len = 2 * fx + (y1 - y0);
+    const t = (d: number) => at + (FRAME_DUR * d) / len;
+    for (const side of [-1, 1]) {
+      const x = mid + side * fx;
+      line(mid, y0, x, y0, th, red ? 0.75 : 0.85, red, t(0), t(fx));
+      line(x, y0, x, y1, th, red ? 0.75 : 0.85, red, t(fx), t(fx + y1 - y0));
+      line(x, y1, mid, y1, th, red ? 0.75 : 0.85, red, t(fx + y1 - y0), t(len));
+      if (!red) {
+        const lz = frameGap * 0.9;
+        for (const [cy, d] of [
+          [y0, fx],
+          [y1, fx + y1 - y0],
+        ]) {
+          const it = mark(x, "lozenge", cy, lz * 2, lz * 2.5, 0.85, true);
+          it.t0 = t(d) - 0.05;
+          it.t1 = it.t0 + 0.25;
+        }
+      }
+    }
+  };
+  frame(frameInset, 0, Math.max(1.2, H * 0.0024), false);
+  frame(frameInset + frameGap, FRAME_LAG, Math.max(1, H * 0.0013), true);
   // When the pen goes along each.
   const lineDur = (w: number) => LINE_BASE + (w / H) * LINE_PER_HEIGHT;
   head.t0 = HEADING_AT;
@@ -317,7 +407,7 @@ export function bakeContact(
   }
 
   const written = Math.max(...items.map((it) => it.t1));
-  const inkFrom = HEADING_AT - 0.5;
+  const inkFrom = FRAME_AT - 0.2;
   const inkTo = written + 1;
   const byte = (t: number) =>
     Math.min(254, Math.round(clamp((t - inkFrom) / (inkTo - inkFrom), 0, 1) * 255));
@@ -337,9 +427,23 @@ export function bakeContact(
     const pad = (r - l) * 0.02 + 6;
     ctx.fillRect(x0 < x1 ? l : l - pad, y0, r - l + pad, y1 - y0);
   };
+  // A line of the frame: along it, whichever way it runs.
+  const lineField = (it: Item) => {
+    const b = it.red ? 255 : 0;
+    const g = ctx.createLinearGradient(it.x, it.y, it.x2, it.y2);
+    g.addColorStop(0, `rgb(0,${byte(it.t0)},${b})`);
+    g.addColorStop(1, `rgb(0,${byte(it.t1)},${b})`);
+    ctx.fillStyle = g;
+    const pad = it.size * 2 + 4;
+    const l = Math.min(it.x, it.x2) - pad;
+    const t = Math.min(it.y, it.y2) - pad;
+    ctx.fillRect(l, t, Math.abs(it.x2 - it.x) + 2 * pad, Math.abs(it.y2 - it.y) + 2 * pad);
+  };
   for (const it of items) {
     const s = it.size;
-    if (it.kind === "rule") {
+    if (it.kind === "line") {
+      lineField(it);
+    } else if (it.kind === "rule") {
       const m = it.x + it.w / 2;
       field(it, m, it.x - s * 0.2, it.y - s * 0.4, it.y + s * 0.4);
       field(it, m, it.x + it.w + s * 0.2, it.y - s * 0.4, it.y + s * 0.4);
@@ -367,6 +471,14 @@ export function bakeContact(
           x += ctx.measureText(ch).width + it.track;
         }
       }
+    } else if (it.kind === "line") {
+      const h = it.size / 2;
+      ctx.fillRect(
+        Math.min(it.x, it.x2) - h,
+        Math.min(it.y, it.y2) - h,
+        Math.abs(it.x2 - it.x) + it.size,
+        Math.abs(it.y2 - it.y) + it.size
+      );
     } else if (it.kind === "rule") {
       const m = it.x + it.w / 2;
       const th = Math.max(1, H * 0.0014);
@@ -389,10 +501,16 @@ export function bakeContact(
   const strokes: ContactStroke[] = [];
   for (const it of items) {
     if (it.kind === "lozenge") continue;
+    if (it.kind === "line") {
+      strokes.push({ u0: it.x / W, u1: it.x2 / W, v0: it.y / H, v1: it.y2 / H, t0: it.t0, t1: it.t1 });
+      continue;
+    }
+    const v = (it.y - (it.kind === "text" ? it.size * 0.32 : 0)) / H;
     strokes.push({
       u0: it.x / W,
       u1: (it.x + it.w) / W,
-      v: (it.y - (it.kind === "text" ? it.size * 0.32 : 0)) / H,
+      v0: v,
+      v1: v,
       t0: it.t0,
       t1: it.t1,
     });
@@ -467,7 +585,7 @@ export function contactPens(ink: ContactInk, p: number, out: number[]) {
     if ((n + 1) * 2 > out.length) break;
     const f = (p - s.t0) / (s.t1 - s.t0);
     out[n * 2] = s.u0 + (s.u1 - s.u0) * f;
-    out[n * 2 + 1] = s.v;
+    out[n * 2 + 1] = s.v0 + (s.v1 - s.v0) * f;
     n++;
   }
   return n;

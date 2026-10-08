@@ -39,7 +39,6 @@ import {
 import {
   applyStationFrames,
   buildStations,
-  drawStationFlares,
   drawStationSpace,
   hideStations,
   makeFrames,
@@ -50,6 +49,7 @@ import {
   type StationFrame,
 } from "./projectStations";
 import {
+  EDU_WHOLE,
   createEduBook,
   disposeEduBook,
   drawEduBook,
@@ -60,7 +60,10 @@ import {
   OPEN_DOLLY,
   bookChapter,
   bookHitRect,
+  bookPageUI,
+  bookStep,
   contactLinks,
+  continueBook,
   createBookOpening,
   disposeBookOpening,
   drawBookOpeningBack,
@@ -74,6 +77,8 @@ import {
   resetBookOpening,
   seekBookOpening,
   tickBookOpening,
+  turnBookPage,
+  type BookPageUI,
 } from "./bookOpening";
 import { PAGES } from "./bookSpread";
 import { CONTACT } from "./contactPage";
@@ -134,14 +139,22 @@ const PIN_DISTANCE = `+=${TOTAL_PERCENT}%`;
 const LEGACY_SPAN = LEGACY_PERCENT / TOTAL_PERCENT;
 // ...and how far apart the stops are.
 const STOP_SPAN = STOP_PERCENT / TOTAL_PERCENT;
+// How far through the first leg the galaxy already reads as formed round
+// its opening: what is left of it is its last motes settling in, which
+// looks like nothing happening while it waits to be scrolled. From here it
+// finishes by itself (see journeyDirector), and the gateway's invitation
+// comes up as it does.
+const FORMED_AT = 0.82;
 // The book (see educationBook) is not scrolled into being: once the camera
 // is at rest at the last stop it forms on its own clock, start to finish,
 // at the pace it was always let form at -- seconds for the whole formation
 // forward, and for undoing it once the journey is sent back...
-const EDU_MIN_FORWARD_S = 6.5;
+const EDU_MIN_FORWARD_S = 3.0;
 const EDU_MIN_BACK_S = 2.4;
-// ...and how gently, per second, it eases into its final rest.
+// ...how gently, per second, it eases into its final rest -- and the least
+// it comes on by, per second, so its last grains never keep it waiting.
 const EDU_FOLLOW = 3.2;
+const EDU_FINISH = 0.15;
 
 // The banner still itself -- cracking in place, not yet adrift: the
 // landing, as the menu knows it.
@@ -263,6 +276,15 @@ export default function BannerParticlePortal({
   // opens it.
   const bookCanvasRef = useRef<HTMLCanvasElement>(null);
   const bookHitRef = useRef<HTMLButtonElement>(null);
+  // Once it lies open: over each page, what catches the click that turns
+  // the leaf (back, on the left; over, on the right); and the line under
+  // the book that says so, and offers to go on.
+  const pagePrevRef = useRef<HTMLButtonElement>(null);
+  const pageNextRef = useRef<HTMLButtonElement>(null);
+  const pageCueRef = useRef<HTMLDivElement>(null);
+  const cueBackRef = useRef<HTMLButtonElement>(null);
+  const cueNextRef = useRef<HTMLButtonElement>(null);
+  const cueOnRef = useRef<HTMLButtonElement>(null);
   // Over each address on the scroll's last page, once it has been written
   // there: what follows it. Nothing to see -- the ink is the thing to click.
   const contactLinkRefs = useRef<(HTMLAnchorElement | null)[]>([]);
@@ -319,6 +341,12 @@ export default function BannerParticlePortal({
     const dustCanvas = dustCanvasRef.current;
     const bookCanvas = bookCanvasRef.current;
     const bookHit = bookHitRef.current;
+    const pagePrev = pagePrevRef.current;
+    const pageNext = pageNextRef.current;
+    const pageCue = pageCueRef.current;
+    const cueBack = cueBackRef.current;
+    const cueNext = cueNextRef.current;
+    const cueOn = cueOnRef.current;
     const veil = veilRef.current;
     const pinTarget = pinRef.current;
     if (
@@ -327,6 +355,12 @@ export default function BannerParticlePortal({
       !dustCanvas ||
       !bookCanvas ||
       !bookHit ||
+      !pagePrev ||
+      !pageNext ||
+      !pageCue ||
+      !cueBack ||
+      !cueNext ||
+      !cueOn ||
       !veil ||
       !pinTarget
     ) {
@@ -373,6 +407,13 @@ export default function BannerParticlePortal({
     // What flies the camera past the galaxy, one scroll per stop, and the
     // mote of the galaxy it follows there.
     const director = createDirector();
+    // Once the book is open, a scroll at it is the reader's way through it.
+    director.book = {
+      takes: (dir) => bookStep(opening, dir, false),
+      step: (dir) => {
+        bookStep(opening, dir, true);
+      },
+    };
     const guide = createGuide();
     const guideCam = makeCamera();
     let hitKey = "";
@@ -393,6 +434,52 @@ export default function BannerParticlePortal({
       bookHit.style.width = `${Math.round(w)}px`;
       bookHit.style.height = `${Math.round(h)}px`;
       bookHit.tabIndex = 0;
+    };
+    // Puts what catches a click on a page over it (or takes it away).
+    const pageHit = (el: HTMLButtonElement) => {
+      let key = "";
+      return (rect: readonly [number, number, number, number] | null) => {
+        const k = rect ? rect.map((v) => Math.round(v)).join(",") : "";
+        if (k === key) return;
+        key = k;
+        if (!rect) {
+          el.style.display = "none";
+          el.tabIndex = -1;
+          return;
+        }
+        el.style.display = "block";
+        el.style.left = `${Math.round(rect[0])}px`;
+        el.style.top = `${Math.round(rect[1])}px`;
+        el.style.width = `${Math.round(rect[2])}px`;
+        el.style.height = `${Math.round(rect[3])}px`;
+        el.tabIndex = 0;
+      };
+    };
+    const placePagePrev = pageHit(pagePrev);
+    const placePageNext = pageHit(pageNext);
+    // The line under the open book: which of its offers it makes (kept as
+    // it was while it fades out), whether it is up, and where.
+    let cueMode = "";
+    let cueShown = false;
+    let cueTop = -1;
+    const placePageCue = (ui: BookPageUI | null) => {
+      const mode = !ui ? "" : ui.cueNext ? "next" : ui.cueBack ? "back" : "";
+      if (mode && mode !== cueMode) {
+        cueMode = mode;
+        pageCue.dataset.mode = mode;
+      }
+      const shown = mode !== "";
+      if (shown !== cueShown) {
+        cueShown = shown;
+        pageCue.dataset.shown = String(shown);
+      }
+      const top = ui && Number.isFinite(ui.cueY) ? Math.round(ui.cueY) : -1;
+      if (top >= 0 && top !== cueTop) {
+        cueTop = top;
+        pageCue.style.top = `${top}px`;
+      }
+      const on = String(Boolean(ui?.cueOn));
+      if (on !== pageCue.dataset.on) pageCue.dataset.on = on;
     };
     const linkKeys = CONTACT.entries.map(() => "");
     const placeContactLinks = (
@@ -418,9 +505,20 @@ export default function BannerParticlePortal({
       });
     };
     const onBookClick = () => {
+      // Clicked as its last grains land: it is whole at once.
+      if (eduE >= EDU_WHOLE) eduE = 1;
       requestBookOpen(opening);
       bookHit.blur();
       placeBookHit(null);
+    };
+    const onPageNext = () => {
+      turnBookPage(opening, 1);
+    };
+    const onPagePrev = () => {
+      turnBookPage(opening, -1);
+    };
+    const onContinue = () => {
+      continueBook(opening);
     };
     const onBookEnter = () => {
       opening.hovering = true;
@@ -433,6 +531,11 @@ export default function BannerParticlePortal({
     bookHit.addEventListener("pointerleave", onBookLeave);
     bookHit.addEventListener("focus", onBookEnter);
     bookHit.addEventListener("blur", onBookLeave);
+    pageNext.addEventListener("click", onPageNext);
+    pagePrev.addEventListener("click", onPagePrev);
+    cueNext.addEventListener("click", onPageNext);
+    cueBack.addEventListener("click", onPagePrev);
+    cueOn.addEventListener("click", onContinue);
 
     const easeTravel = gsap.parseEase("power2.inOut");
     const easeFrag = gsap.parseEase("power1.out");
@@ -789,8 +892,6 @@ export default function BannerParticlePortal({
         // is disturbed by it any more.
         drawGuide(ctx, guide, journey, time);
         clearJourneyWake();
-        // Any entrance's flare and letterbox, over all of it.
-        drawStationFlares(dustCtx, stations, frames, cssW, cssH);
         // Past the last project: the universe dims a little behind the book
         // it is gathering itself into (and a little more while its page is
         // read), and the book is drawn over it. Both are nothing at all
@@ -814,6 +915,10 @@ export default function BannerParticlePortal({
           )
         );
         placeContactLinks(contactLinks(opening));
+        const ui = bookPageUI(opening);
+        placePagePrev(ui.prev);
+        placePageNext(ui.next);
+        placePageCue(ui);
         return;
       }
 
@@ -827,6 +932,9 @@ export default function BannerParticlePortal({
       setJourneyDolly(0);
       placeBookHit(null);
       placeContactLinks(null);
+      placePagePrev(null);
+      placePageNext(null);
+      placePageCue(null);
       // ...and the guide is one of the galaxy's motes again.
       resetGuide(guide);
       setGalaxyClaim(null);
@@ -1040,6 +1148,7 @@ export default function BannerParticlePortal({
     const scrollHooks: ScrollHooks = {
       raw: () => lastProgressRef.current,
       rawOf: (k) => LEGACY_SPAN + k * STOP_SPAN,
+      formed: () => LEGACY_SPAN * FORMED_AT,
       px: () => {
         const st = triggerRef.current;
         const len = st ? st.end - st.start : 0;
@@ -1161,7 +1270,7 @@ export default function BannerParticlePortal({
         to === "education" &&
         director.pos === director.last &&
         director.target === director.last &&
-        eduE >= 1 &&
+        eduE >= EDU_WHOLE &&
         opening.t <= 0 &&
         !opening.wanted &&
         !opening.noGL
@@ -1250,7 +1359,10 @@ export default function BannerParticlePortal({
       // so while it is open (or opening, or shutting) it is held formed.
       const held = tickBookOpening(opening, edu, dt, eduE, eduWanted);
       const target = held ? 1 : eduWanted;
-      const step = (target - eduE) * (1 - Math.exp(-dt * EDU_FOLLOW));
+      let step = (target - eduE) * (1 - Math.exp(-dt * EDU_FOLLOW));
+      if (target > eduE) {
+        step = Math.max(step, Math.min(target - eduE, dt * EDU_FINISH));
+      }
       eduE = clamp(
         eduE + clamp(step, -dt / EDU_MIN_BACK_S, dt / EDU_MIN_FORWARD_S),
         0,
@@ -1264,12 +1376,14 @@ export default function BannerParticlePortal({
       director.bookFormed = eduE >= 1;
       updateDirector(director, dt, timeRef.current, scrollHooks);
       // Resting at the gateway, with the page there too (not scrolled back
-      // up into the galaxy): the journey is waiting for its first scroll.
+      // up into the galaxy), or the galaxy finishing itself on the way
+      // there: the journey is waiting for its first scroll.
       const resting =
         !cut &&
         director.pos === 0 &&
         director.target === 0 &&
-        lastProgressRef.current >= LEGACY_SPAN - scrollHooks.px() * 3;
+        (director.glide !== null ||
+          lastProgressRef.current >= LEGACY_SPAN - scrollHooks.px() * 3);
       if (resting !== atGateway) {
         atGateway = resting;
         onGatewayRef.current?.(resting);
@@ -1311,6 +1425,11 @@ export default function BannerParticlePortal({
       bookHit.removeEventListener("pointerleave", onBookLeave);
       bookHit.removeEventListener("focus", onBookEnter);
       bookHit.removeEventListener("blur", onBookLeave);
+      pageNext.removeEventListener("click", onPageNext);
+      pagePrev.removeEventListener("click", onPagePrev);
+      cueNext.removeEventListener("click", onPageNext);
+      cueBack.removeEventListener("click", onPagePrev);
+      cueOn.removeEventListener("click", onContinue);
       trigger?.kill();
       triggerRef.current = null;
     };
@@ -1323,8 +1442,7 @@ export default function BannerParticlePortal({
           project screens standing in it -- which have to be solid, or the
           field behind them shows straight through and they read as windows
           rather than objects -- then the handful of motes that genuinely
-          are in front of a screen, so nothing ever looks pasted on (and,
-          on that same canvas, each entrance's flare and letterbox). Last,
+          are in front of a screen, so nothing ever looks pasted on. Last,
           the title cards: titles, so on top of the picture. */}
       <ProjectStations nodesRef={stationNodesRef} depth="far" />
       <canvas ref={canvasRef} className={styles.canvas} aria-hidden="true" />
@@ -1339,6 +1457,50 @@ export default function BannerParticlePortal({
         aria-label="Open the book"
         tabIndex={-1}
       />
+      <button
+        ref={pagePrevRef}
+        type="button"
+        className={styles.pageHit}
+        aria-label="Turn back to Education and Certifications"
+        tabIndex={-1}
+      />
+      <button
+        ref={pageNextRef}
+        type="button"
+        className={styles.pageHit}
+        aria-label="Turn the page to Experience"
+        tabIndex={-1}
+      />
+      {/* The line under the open book: what the reader can do with it, said
+          the way the book itself is written. */}
+      <div
+        ref={pageCueRef}
+        className={styles.pageCue}
+        data-shown="false"
+        data-on="false"
+      >
+        <span className={styles.flourish} aria-hidden="true" />
+        <button ref={cueBackRef} type="button" className={styles.cueBack}>
+          <span className={styles.chevron} aria-hidden="true">
+            &lsaquo;
+          </span>
+          <span className={styles.cueText}>Turn back</span>
+        </button>
+        <span className={styles.cueSep} aria-hidden="true" />
+        <button ref={cueNextRef} type="button" className={styles.cueNext}>
+          <span className={styles.cueText}>Turn the page</span>
+          <span className={styles.chevron} aria-hidden="true">
+            &rsaquo;
+          </span>
+        </button>
+        <button ref={cueOnRef} type="button" className={styles.cueOn}>
+          <span className={styles.cueText}>Continue</span>
+          <span className={styles.chevron} aria-hidden="true">
+            &rsaquo;
+          </span>
+        </button>
+        <span className={styles.flourish} data-side="end" aria-hidden="true" />
+      </div>
       {CONTACT.entries.map((e, i) => (
         <a
           key={e.label}

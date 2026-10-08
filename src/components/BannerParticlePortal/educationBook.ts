@@ -28,8 +28,8 @@
  *   0.92  the last grains land, the surface closes, the heat goes out;
  *   1.00  a closed book, floating. It stays closed until it is clicked;
  *         opening it is bookOpening's, which takes over from here. Left
- *         alone, it lies still a moment, then stirs -- lifts a little in a
- *         breath of warm light, and settles -- a few times, then no more.
+ *         alone, it bounces -- a hop and two small rebounds, in a breath
+ *         of warm light -- every couple of seconds until it is.
  *
  * There is no frame at which the book appears. Until a grain has landed on
  * a point of its surface, that point is not there.
@@ -80,16 +80,24 @@ const SPLAT_CLOSE = 2.1;
 /** Resolution of the coverage mask, per CSS px. */
 const MASK_S = 1;
 
-/** Once it has settled, the book stirs, as if it knew it was looked at:
- *  seconds it lies still first; each stir's length, and the pause after
- *  it; how far each lifts (of the viewport's height) -- one fewer each
- *  time, and then never again until it is made anew; how far it tips as it
- *  goes (radians, at its fastest); and the warm light it gives then. */
-const STIR_HOLD = 1.6;
-const STIR_S = 1.8;
-const STIR_GAP = 1.3;
-const STIR_LIFT = [0.017, 0.0135, 0.0105] as const;
-const STIR_TIP = 0.0042;
+/** How far formed it is (e) once it reads as whole: it can be clicked from
+ *  here, and a click finishes it on the spot. */
+export const EDU_WHOLE = 0.96;
+
+/** Once it has settled, the book bounces, now and again until it is
+ *  opened, as if asking to be: seconds it lies still first, and from one
+ *  bounce to the next. Each bounce is a hop and the rebounds after it, like
+ *  a dropped ball -- how high each goes (of the viewport's height), and for
+ *  how long (s). Then how far it tips at the top of the hop (radians), and
+ *  the warm light it gives as it goes. */
+const STIR_HOLD = 0.3;
+const STIR_EVERY = 2.2;
+const HOPS = [
+  [0.036, 0.4],
+  [0.012, 0.23],
+  [0.004, 0.13],
+] as const;
+const STIR_TIP = 0.03;
 const STIR_GLOW = 0.17;
 
 /* ------------------------------------------------------------------ *
@@ -135,10 +143,6 @@ function span(x: number, a: number, b: number) {
 
 function easeInOutCubic(x: number) {
   return x < 0.5 ? 4 * x * x * x : 1 - (-2 * x + 2) ** 3 / 2;
-}
-
-function easeInOutSine(x: number) {
-  return 0.5 - 0.5 * Math.cos(Math.PI * x);
 }
 
 function makeRng(seed: number) {
@@ -621,20 +625,26 @@ function seedPath(b: EduBook, e: number, out: { x: number; y: number }) {
  * Drawing
  * ------------------------------------------------------------------ */
 
-/** One stir, `s` seconds into it, 0 outside it: up, unhurried; back down a
- *  hair past where it was, as the air under it takes its weight; settled. */
-function stirShape(s: number) {
-  if (s <= 0 || s >= STIR_S) return 0;
-  if (s < 0.62) return easeInOutSine(s / 0.62);
-  if (s < 1.38) return lerp(1, -0.12, easeInOutSine((s - 0.62) / 0.76));
-  return lerp(-0.12, 0, easeInOutSine((s - 1.38) / 0.42));
+/** One bounce, `s` seconds into it: how high it is, of the first hop's
+ *  height. Each hop a parabola -- up fast, slowing at the top, falling
+ *  faster -- and straight up again off the ground, lower each time. */
+function bounceShape(s: number) {
+  if (s <= 0) return 0;
+  for (const [h, d] of HOPS) {
+    if (s < d) {
+      const f = s / d;
+      return (4 * f * (1 - f) * h) / HOPS[0][0];
+    }
+    s -= d;
+  }
+  return 0;
 }
 
 const STIR = { lift: 0, tip: 0, glow: 0 };
 
-/** How it is stirring at `time`: lifted by so many CSS px, tipped by so
- *  many radians, and the light it gives, 0..1. All 0 once it has stirred
- *  its last, and quieted at once (in half a second) when it is opened. */
+/** How it is bouncing at `time`: lifted by so many CSS px, tipped by so
+ *  many radians, and the light it gives, 0..1. Quieted at once (in a third
+ *  of a second) when it is opened. */
 function stirAt(b: EduBook, time: number) {
   STIR.lift = 0;
   STIR.tip = 0;
@@ -642,23 +652,22 @@ function stirAt(b: EduBook, time: number) {
   if (Number.isNaN(b.restAt)) return STIR;
   const quiet = Number.isNaN(b.stirEnd)
     ? 1
-    : 1 - smoothstep(b.stirEnd, b.stirEnd + 0.5, time);
+    : 1 - smoothstep(b.stirEnd, b.stirEnd + 0.35, time);
   let s = time - b.restAt - STIR_HOLD;
   if (quiet <= 0 || s <= 0) return STIR;
-  const n = Math.floor(s / (STIR_S + STIR_GAP));
-  if (n >= STIR_LIFT.length) return STIR;
-  s -= n * (STIR_S + STIR_GAP);
-  const up = STIR_LIFT[n];
-  // It leans a little into the way it is going: up, and back.
-  const v = (stirShape(s + 0.06) - stirShape(s - 0.06)) / 0.12;
-  STIR.lift = stirShape(s) * up * b.cssH * quiet;
-  STIR.tip = v * STIR_TIP * b.side * quiet;
-  STIR.glow =
-    smoothstep(0, 0.55, s) *
-    (1 - smoothstep(0.9, STIR_S + 0.6, s)) *
-    (up / STIR_LIFT[0]) *
-    quiet;
+  s %= STIR_EVERY;
+  const up = bounceShape(s);
+  STIR.lift = up * HOPS[0][0] * b.cssH * quiet;
+  // It tips as it goes up, and lands level.
+  STIR.tip = up * STIR_TIP * b.side * quiet;
+  STIR.glow = smoothstep(0, 0.12, s) * (1 - smoothstep(0.45, 1.2, s)) * quiet;
   return STIR;
+}
+
+/** The most it rises above where it floats, CSS px: its float and its
+ *  highest hop. */
+export function eduBounceReach(b: EduBook) {
+  return (HOPS[0][0] + 0.0075) * b.cssH;
 }
 
 /**

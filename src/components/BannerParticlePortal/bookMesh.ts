@@ -43,8 +43,8 @@ export const YP = 0.5 - SQ;
  *  it is on the written pages, if it is on one (bookSpread; x -1 if not):
  *  x and y on the map, which way the map runs across it, and whether it is
  *  the leaf being turned (which casts the shadow, and so takes none). Last,
- *  where it is on the parchment the book becomes, if it is on that
- *  (contactPage; x -1 if not), and a spare. */
+ *  where it is on the parchment the book becomes, if it is on that (x -1
+ *  if not), and whether the last page (contactPage) is written there. */
 export const STRIDE = 24;
 
 /** The written pages' map holds this many pages side by side (bookSpread). */
@@ -95,11 +95,12 @@ export type PartKey =
   | "head"
   | "fore"
   | "sheet"
-  | "sheetBack";
+  | "sheetBack"
+  | "rod";
 
-/** The parts, in the order they are drawn. The last two are the parchment
- *  the book becomes (parchmentScroll), its written face and its back: empty
- *  until then. */
+/** The parts, in the order they are drawn. The last three are the scroll
+ *  the book becomes (parchmentScroll): the parchment's written face, its
+ *  back, and the rollers it is rolled on -- empty until then. */
 export const PART_KEYS: PartKey[] = [
   "cover",
   "inner",
@@ -112,6 +113,7 @@ export const PART_KEYS: PartKey[] = [
   "fore",
   "sheet",
   "sheetBack",
+  "rod",
 ];
 
 /** One material's triangles, rebuilt in place whenever the book moves. */
@@ -149,7 +151,8 @@ export class Part {
     pgd = 0,
     cast = 0,
     scx = -1,
-    scy = -1
+    scy = -1,
+    scz = 0
   ) {
     if ((this.nv + 1) * STRIDE > this.v.length) {
       const n = new Float32Array(this.v.length * 2);
@@ -181,7 +184,7 @@ export class Part {
     a[o + 20] = cast;
     a[o + 21] = scx;
     a[o + 22] = scy;
-    a[o + 23] = 0;
+    a[o + 23] = scz;
     return this.nv++;
   }
 

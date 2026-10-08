@@ -299,18 +299,24 @@
 }
 
 /* ------------------------------------------------------------------ *
- * The bar: everywhere past the banner, the same strip of film laid
- * across the top -- its perforations running along its top and bottom
- * edges now, its frames side by side.
+ * The header: everywhere past the banner, the sections along the top,
+ * on the name's line -- the name at its left (it stays where Name's
+ * .compact puts it), these at its right, in white, straight on the
+ * page with nothing behind them.
  * ------------------------------------------------------------------ */
 
 .bar {
+  /* Tall enough to centre on the name's line: Name's .compact sits at
+     top 1.25rem with a 1.2 line-height at this size, so the bar is that
+     much above it, the line, and as much again below it. */
+  --bar-h: calc(2.5rem + 1.2 * clamp(1.05rem, 2vw, 1.375rem));
   position: fixed;
-  top: 0.9rem;
-  left: 50%;
+  top: 0;
+  right: 1.5rem;
   z-index: 35;
-  max-width: calc(100vw - 2rem);
-  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  height: var(--bar-h);
   pointer-events: none;
 }
 
@@ -319,194 +325,122 @@
 }
 
 .barList {
-  position: relative;
   display: flex;
+  align-items: center;
+  gap: 2.25rem;
   margin: 0;
-  /* Room above and below the frames for the perforations. */
-  padding: 9px 4px;
+  padding: 0;
   list-style: none;
-  border-radius: 3px;
-  /* The film itself, as in the corner menu's frames, with its two rows of
-     sprocket holes -- painted as backgrounds rather than an overlay so that
-     on a narrow screen, where the strip scrolls sideways, they run the
-     whole length of it. */
-  background:
-    radial-gradient(circle, rgba(244, 230, 211, 0.7) 1.2px, transparent 1.8px)
-      6px 0 / 13px 9px repeat-x,
-    radial-gradient(circle, rgba(244, 230, 211, 0.7) 1.2px, transparent 1.8px)
-      6px 100% / 13px 9px repeat-x,
-    linear-gradient(170deg, #2c2015, #1a130d 65%, #100b07);
-  background-attachment: local, local, local;
-  box-shadow:
-    0 14px 40px rgba(8, 6, 4, 0.5),
-    inset 0 0 0 1px rgba(244, 230, 211, 0.1);
-  /* Unspools from the middle outward. (Inset past its own edges when shown,
-     or the clip would cut its shadow off.) */
-  clip-path: inset(-48px 50% -48px 50%);
-  transition: clip-path 0.65s cubic-bezier(0.65, 0, 0.35, 1);
 }
 
-.bar[data-shown="true"] .barList {
-  clip-path: inset(-48px -48px -48px -48px);
-  transition-delay: 0.1s;
-}
-
-.barList::after {
-  /* The negative strip's faint grain, as on the corner menu's frames. */
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: repeating-linear-gradient(
-    0deg,
-    rgba(255, 255, 255, 0.03) 0px,
-    rgba(255, 255, 255, 0.03) 1px,
-    transparent 1px,
-    transparent 3px
-  );
-  mix-blend-mode: overlay;
-}
-
-.barFrame {
-  position: relative;
-  flex: none;
+.barItem {
   opacity: 0;
-  transform: translateY(-7px);
+  transform: translateY(-4px);
   transition:
     opacity 0.3s ease,
     transform 0.3s ease;
 }
 
-/* Each frame drops into the gate in turn, left to right, as the strip
-   finishes unspooling -- the "click" of the corner menu's frames, sideways. */
-.bar[data-shown="true"] .barFrame {
+/* The links come in one after another, left to right, as you leave the
+   banner. */
+.bar[data-shown="true"] .barItem {
   opacity: 1;
   transform: none;
   transition:
-    opacity 0.4s ease,
-    transform 0.55s cubic-bezier(0.34, 1.56, 0.64, 1);
-  transition-delay: calc(0.35s + var(--i) * 0.07s);
+    opacity 0.5s ease,
+    transform 0.5s ease;
+  transition-delay: calc(0.2s + var(--i) * 0.06s);
 }
 
-.barFrame + .barFrame {
-  /* The line between one frame of film and the next. */
-  border-left: 1px solid rgba(244, 230, 211, 0.14);
-}
-
-.barFrame::before {
-  /* Where you are: that frame lit from behind, warm, as if in the gate. */
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: radial-gradient(
-    ellipse 85% 100% at 50% 55%,
-    rgba(232, 185, 118, 0.2),
-    rgba(232, 185, 118, 0) 72%
-  );
+.barToggle {
+  /* Only on a phone (below); reset here so the shared type below holds. */
+  appearance: none;
+  margin: 0;
+  border: 0;
+  background: none;
+  padding: 0.5rem 0;
+  color: #fff;
+  cursor: pointer;
   opacity: 0;
-  transition: opacity 0.45s ease;
-}
-
-.barFrame[data-current="true"]::before {
-  opacity: 1;
-}
-
-.barLink {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  align-items: baseline;
-  gap: 0.5rem;
-  padding: 0.62rem 1.05rem;
-  color: #f4e6d3;
-  text-decoration: none;
-  white-space: nowrap;
+  transition: opacity 0.5s ease 0.2s;
   -webkit-tap-highlight-color: transparent;
 }
 
-/* The corner button's viewfinder brackets, drawn in one layer: faint and
-   loose on hover, locked tight and amber on the frame you are in. */
-.barLink::after {
-  --c: #f4e6d3;
-  --l: 7px;
-  --w: 1.5px;
-  content: "";
-  position: absolute;
-  inset: 4px 5px;
-  pointer-events: none;
-  background:
-    linear-gradient(var(--c), var(--c)) top left / var(--l) var(--w),
-    linear-gradient(var(--c), var(--c)) top left / var(--w) var(--l),
-    linear-gradient(var(--c), var(--c)) top right / var(--l) var(--w),
-    linear-gradient(var(--c), var(--c)) top right / var(--w) var(--l),
-    linear-gradient(var(--c), var(--c)) bottom left / var(--l) var(--w),
-    linear-gradient(var(--c), var(--c)) bottom left / var(--w) var(--l),
-    linear-gradient(var(--c), var(--c)) bottom right / var(--l) var(--w),
-    linear-gradient(var(--c), var(--c)) bottom right / var(--w) var(--l);
-  background-repeat: no-repeat;
-  opacity: 0;
-  transform: scale(1.12);
-  transition:
-    opacity 0.35s ease,
-    transform 0.35s ease;
-}
-
-.barLink:hover::after,
-.barLink:focus-visible::after {
-  opacity: 0.6;
-  transform: scale(1);
-}
-
-.barFrame[data-current="true"] .barLink::after {
-  --c: #e8b976;
+.bar[data-shown="true"] .barToggle {
   opacity: 1;
-  transform: scale(1);
 }
 
-.barLink:focus-visible {
-  outline: 1px solid rgba(244, 230, 211, 0.75);
-  outline-offset: -2px;
+.barLink,
+.barToggle {
+  font-family: var(--font-geist-sans), sans-serif;
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  /* As on the name: nothing is behind them, so this keeps them clear of a
+     bright particle drifting past underneath. */
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.6);
 }
 
-.barIndex {
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 0.62rem;
-  letter-spacing: 0.08em;
-  color: rgba(244, 230, 211, 0.5);
+.barLink {
+  display: block;
+  padding: 0.5rem 0;
+  color: rgba(255, 255, 255, 0.55);
+  text-decoration: none;
   transition: color 0.3s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.barLink:hover,
+.barLink:focus-visible,
+.barLink[aria-current="location"] {
+  color: #fff;
+}
+
+.barLink:focus-visible,
+.barToggle:focus-visible {
+  outline: 1px solid rgba(255, 255, 255, 0.6);
+  outline-offset: 4px;
 }
 
 .barLabel {
-  font-family: var(--font-geist-sans), sans-serif;
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  transition: color 0.25s ease;
+  position: relative;
 }
 
-.barShort {
+/* A thin white line under the words: drawn in from the middle on hover,
+   and kept under the section you are in. (Short of the last letter's
+   trailing letter-spacing, so it ends where the word does.) */
+.barLabel::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0.18em;
+  bottom: -0.4rem;
+  height: 1px;
+  background: currentColor;
+  transform: scaleX(0);
+  transition: transform 0.35s ease;
+}
+
+.barLink:hover .barLabel::after,
+.barLink:focus-visible .barLabel::after,
+.barLink[aria-current="location"] .barLabel::after {
+  transform: scaleX(1);
+}
+
+.barShort,
+.barToggle {
   display: none;
 }
 
-.barLink:hover .barLabel,
-.barLink:focus-visible .barLabel {
-  color: #e8b976;
-}
+/* Narrower: the long label gives way to its short form, so the links
+   still clear the name. */
+@media (width < 1000px) {
+  .barList {
+    gap: 1.75rem;
+  }
 
-.barFrame[data-current="true"] .barLabel,
-.barFrame[data-current="true"] .barIndex {
-  color: #e8b976;
-}
-
-.barFrame[data-current="true"] .barIndex {
-  animation: indexGlow 1.8s ease-in-out infinite;
-}
-
-/* Narrower: the long label gives way to its short form, and then the frame
-   numbers go, so the strip still clears the name in the corner. */
-@media (width < 1180px) {
   .barFull {
     display: none;
   }
@@ -516,36 +450,67 @@
   }
 }
 
-@media (860px < width <= 1000px) {
-  .barIndex {
-    display: none;
-  }
-}
-
-/* A phone or small tablet: the strip runs the width of the screen under the
-   name, and is drawn along sideways where it is longer than that. */
-@media (width <= 860px) {
+/* A phone: the links fold into a Menu button at the right of the name's
+   line, and drop down below it when it is tapped -- over the page's own
+   dark (BannerParticlePortal's #100b07), fading out at the foot, so they
+   stay readable where they cross the book without showing as a box. */
+@media (width <= 680px) {
   .bar {
-    top: 3.1rem;
-    left: 0.75rem;
-    right: 0.75rem;
-    max-width: none;
-    transform: none;
+    right: 1.25rem;
+  }
+
+  .barToggle {
+    display: block;
   }
 
   .barList {
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
-    scrollbar-width: none;
+    position: fixed;
+    top: var(--bar-h);
+    left: 0;
+    right: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding: 0.25rem 1.5rem 2.5rem;
+    background: linear-gradient(
+      to bottom,
+      #100b07 calc(100% - 2.5rem),
+      rgba(16, 11, 7, 0)
+    );
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-6px);
+    transition:
+      opacity 0.3s ease,
+      transform 0.3s ease,
+      visibility 0s linear 0.3s;
   }
 
-  .barList::-webkit-scrollbar {
-    display: none;
+  .bar[data-open="true"] .barList {
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+    transition:
+      opacity 0.3s ease,
+      transform 0.3s ease;
+  }
+
+  .barItem + .barItem {
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
   }
 
   .barLink {
-    padding: 0.6rem 0.85rem;
-    gap: 0.4rem;
+    padding: 1rem 0;
+    font-size: 0.78rem;
+  }
+
+  /* There is room for the whole label here. */
+  .barFull {
+    display: inline;
+  }
+
+  .barShort {
+    display: none;
   }
 }
 
@@ -566,21 +531,11 @@
     transition: opacity 0.3s ease;
   }
 
+  .barItem,
+  .bar[data-shown="true"] .barItem,
   .barList,
-  .bar[data-shown="true"] .barList,
-  .barFrame,
-  .bar[data-shown="true"] .barFrame {
+  .bar[data-open="true"] .barList {
     transform: none;
-    transition: opacity 0.3s ease;
     transition-delay: 0s;
-  }
-
-  .barList {
-    clip-path: none;
-    opacity: 0;
-  }
-
-  .bar[data-shown="true"] .barList {
-    opacity: 1;
   }
 }

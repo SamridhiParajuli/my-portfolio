@@ -16,6 +16,11 @@
  * that keeps the sheet's length, each turn one thickness inside the last,
  * until the two rolls meet in the middle. Unrolling is the same thing run
  * backwards.
+ *
+ * At each roll's core, once there is a turn and more of it round there, a
+ * roller: old turned wood, its ends coming out past the parchment's head
+ * and tail in a brass collar and a turned knob, as an ancient scroll's
+ * rollers do. (They are built whole; the shader grows them out, bookGL.)
  */
 
 import { BOOK } from "./antiqueBook";
@@ -36,6 +41,30 @@ const R0 = 0.03;
 const DELTA = 0.0065;
 /** Samples along each half. */
 const NH = 200;
+/** A roller: its radius, inside the roll's core; and how it is turned past
+ *  the parchment's edge -- [how far past, radius, brass (1) or wood (0)],
+ *  out to the tip of its knob. */
+const ROD_R = 0.024;
+const ROD_END: ReadonlyArray<readonly [number, number, number]> = [
+  [0, ROD_R, 0],
+  [0.006, ROD_R, 0],
+  [0.0075, 0.03, 1],
+  [0.019, 0.03, 1],
+  [0.0205, 0.018, 0],
+  [0.031, 0.019, 0],
+  [0.041, 0.03, 0],
+  [0.051, 0.036, 0],
+  [0.061, 0.033, 0],
+  [0.069, 0.022, 0],
+  [0.0715, 0.016, 1],
+  [0.0745, 0.021, 1],
+  [0.0805, 0.014, 1],
+  [0.0845, 0.0, 1],
+];
+/** How far past the parchment's edge a roller reaches. */
+export const ROD_EXT = ROD_END[ROD_END.length - 1][0];
+/** Segments round a roller. */
+const NR = 18;
 
 export type Sheet = {
   /** 0: the open spread's two pages, as they lie. 1: one flat sheet. */
@@ -50,10 +79,12 @@ export type Sheet = {
   parch: boolean;
   /** How much of the gutter's shadow is left on it, 0..1. */
   gutter: number;
+  /** Whether its rollers are there (grown, or growing) to be built. */
+  rods: boolean;
 };
 
 export function createSheet(): Sheet {
-  return { flat: 0, lh: PL, ell: 0, parch: false, gutter: 1 };
+  return { flat: 0, lh: PL, ell: 0, parch: false, gutter: 1, rods: false };
 }
 
 /** The radius of a roll that has `ell` of the sheet in it. */
@@ -202,8 +233,9 @@ export function buildSheet(
           onExp ? 1 - v0 : -1,
           onExp ? 1 : 0,
           0,
-          sh.parch ? qu : -1,
-          sh.parch ? 1 - v0 : -1
+          qu,
+          1 - v0,
+          sh.parch ? 1 : 0
         );
         back.vert(
           XS[k] - nx * BACK_SINK,
@@ -222,7 +254,14 @@ export function buildSheet(
           v0,
           backOcc,
           0.2,
-          1
+          1,
+          -1,
+          -1,
+          0,
+          0,
+          qu,
+          1 - v0,
+          0
         );
       }
     }
@@ -233,6 +272,88 @@ export function buildSheet(
       back.quad(j, j + 1, j + 3, j + 2);
     }
   }
+  buildRods(m, sh);
+}
+
+/** The roller's profile, tip to tip: [y, radius, brass], book space. */
+const PROF: Array<[number, number, number]> = [];
+for (let i = ROD_END.length - 1; i >= 0; i--) {
+  const [e, r, b] = ROD_END[i];
+  PROF.push([-YP - e, r, b]);
+}
+for (const [e, r, b] of ROD_END) PROF.push([YP + e, r, b]);
+/** Each ring's normal in the profile's own plane: [out, up]. */
+const PNRM = PROF.map((_, i) => {
+  const a = PROF[Math.max(0, i - 1)];
+  const b = PROF[Math.min(PROF.length - 1, i + 1)];
+  const dy = b[0] - a[0];
+  const dr = b[1] - a[1];
+  const l = Math.hypot(dy, dr) || 1;
+  return [dy / l, -dr / l] as const;
+});
+
+/** Where a roller's axis is: at the core of its roll. out: [x, z]. */
+function rodAxis(sh: Sheet, side: number, out: number[]) {
+  out[0] = XC + side * (sh.lh - sh.ell);
+  out[1] = rollRadius(sh.ell);
+}
+
+const AX = [0, 0];
+
+/** The two rollers, into the mesh's own part for them -- once there is a
+ *  roll for each to be the core of. */
+function buildRods(m: BookMesh, sh: Sheet) {
+  const rod = m.rod;
+  rod.reset();
+  if (!sh.rods || sh.ell <= 0) return;
+  for (const side of [-1, 1]) {
+    rodAxis(sh, side, AX);
+    const base = rod.nv;
+    for (let i = 0; i < PROF.length; i++) {
+      const [y, r, brass] = PROF[i];
+      const [no, nu] = PNRM[i];
+      for (let j = 0; j <= NR; j++) {
+        const a = (2 * Math.PI * j) / NR;
+        const ca = Math.cos(a);
+        const sa = Math.sin(a);
+        rod.vert(
+          AX[0] + r * ca,
+          y,
+          AX[1] + r * sa,
+          no * ca,
+          nu,
+          no * sa,
+          -sa,
+          0,
+          ca,
+          0,
+          1,
+          0,
+          j / NR,
+          brass,
+          1,
+          0,
+          0
+        );
+      }
+    }
+    for (let i = 0; i < PROF.length - 1; i++) {
+      for (let j = 0; j < NR; j++) {
+        const a = base + i * (NR + 1) + j;
+        rod.quad(a, a + 1, a + NR + 2, a + NR + 1);
+      }
+    }
+  }
+}
+
+/** Where a roller's end has grown to, `grow` of the way out past the
+ *  parchment's edge (end -1 the tail, 1 the head), book space. out:
+ *  [x, y, z]. */
+export function rodTip(sh: Sheet, side: number, end: number, grow: number, out: number[]) {
+  rodAxis(sh, side, AX);
+  out[0] = AX[0];
+  out[1] = end * (YP + ROD_EXT * Math.min(1, Math.max(0, grow)));
+  out[2] = AX[1];
 }
 
 /** Where one of its rolls is, `hf` of the way up it (0 tail, 1 head), in

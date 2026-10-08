@@ -169,28 +169,20 @@ const DISTANT_EMBER_LEAD = 0.2;
 /*
  * The one thing here that is *not* a function of distance. The camera still
  * decides when (the moment it reaches the start of `resolve`), but what
- * follows is a beat with a clock of its own -- the hero shot of an opening
- * title sequence, which scroll speed has no business stretching or
- * squashing. In order, in seconds from the cue:
+ * follows runs on a clock of its own, so scroll speed never stretches or
+ * squashes it. Deliberately quiet -- no flare, flash or letterbox. In
+ * seconds from the cue:
  *
- *   0.00  the frame goes widescreen, and the light that has been out there
- *         all along ignites -- a hot core throwing an anamorphic streak;
- *   0.20  the streak becomes a slit of light the width of the screen...
- *   0.44  ...which tears open top and bottom into the screen, white-hot,
- *         while god-rays burst out from behind it;
- *   0.50  the exposure falls back, focus racks in, and a slow push-in
- *         carries it the last few percent to where it rests;
- *   0.95  its name lands under it, one letter igniting after another,
- *         tracking slowly in;
- *   1.05  a glint sweeps across the screen's face, and later a sheen
- *         across the name;
- *   3.30  and the frame goes back to full height.
+ *   0.00  the screen fades up out of its own light, coming into focus and
+ *         settling the last couple of percent to where it rests;
+ *   0.70  its name fades in under it, rising a touch, and the rules either
+ *         side of it draw outward.
  *
  * Once it has played, every value is exactly the approved resting look, so
  * the hold and the fade away (`lost`, still scroll) are untouched.
  */
 /** Seconds the entrance runs for. */
-const BEAT_END = 4.4;
+const BEAT_END = 2.4;
 /** The scroll has to back off this far past the cue (UNIT) before the
  *  entrance is taken back, so hovering around the cue can't retrigger it. */
 const CUE_REARM = 0.8;
@@ -199,26 +191,15 @@ const UNDO_S = 0.5;
 /** How visible a world has to be for its entrance to play -- so a world
  *  already faded away behind the camera is not introduced to nobody. */
 const CUE_GATE = 0.05;
-/** How far short of its resting size the push-in starts from. */
-const PUSH_FROM = 0.92;
-/** Title tracking, in em: where it starts, and the site's own title
- *  tracking it settles at. */
-const TRACK_FROM = 1.3;
-const TRACK_REST = 0.44;
-/** Degrees per second the god-rays turn while they are up. */
-const RAY_SPIN = 7;
-/** Letterbox bar height, as a fraction of the frame's height, and at most
- *  this many CSS px -- so it ends above the MENU trigger rather than
- *  cutting across it, and no world's screen or name is ever behind one. */
-const BAR_FRAC = 0.06;
-const BAR_MAX = 50;
+/** How far short of its resting size the screen starts its settle from. */
+const PUSH_FROM = 0.97;
+/** How far below its resting place the title starts, in its own em. */
+const CARD_RISE = 0.35;
 /** Title size against the size the screen is seen at, and its bounds in
  *  CSS px, so it is a credit on a phone rather than a speck. */
 const CARD_K = 0.052;
 const CARD_MIN = 12;
 const CARD_MAX = 24;
-/** The anamorphic blue the streak cools to at its ends. */
-const FLARE_COOL = [132, 176, 255] as const;
 
 const CLOUD_N = 168;
 const CLOUD_N_SMALL = 92;
@@ -291,28 +272,12 @@ export type StationFrame = {
   undoneAt: number;
   /** True while the entrance is still running. */
   intro: boolean;
-  /** The screen: slit open across and then top-to-bottom, white-out, how
-   *  far the glint has crossed it, push-in scale. */
-  slitX: number;
-  slitY: number;
-  flash: number;
-  glint: number;
+  /** The screen: how far it has faded up, and its settle scale. */
+  appear: number;
   push: number;
-  /** God-rays behind it: strength, scale, turn (deg). */
-  rays: number;
-  raysScale: number;
-  spin: number;
-  /** Its title: presence, letters landed, tracking (em), rules, sheen. */
+  /** Its title: presence, and how far its rules have drawn out. */
   card: number;
-  type: number;
-  track: number;
   rule: number;
-  sheen: number;
-  /** Lens flare strength and streak length; letterbox. Lens effects, so
-   *  drawn over everything. */
-  flare: number;
-  streak: number;
-  bars: number;
 };
 
 /* ------------------------------------------------------------------ */
@@ -339,14 +304,6 @@ function span(x: number, a: number, b: number) {
 
 function easeOutCubic(x: number) {
   return 1 - (1 - x) ** 3;
-}
-
-function easeOutQuart(x: number) {
-  return 1 - (1 - x) ** 4;
-}
-
-function easeOutExpo(x: number) {
-  return x >= 1 ? 1 : 1 - Math.pow(2, -10 * x);
 }
 
 function easeInOutCubic(x: number) {
@@ -532,22 +489,10 @@ export function makeFrames(count: number): StationFrame[] {
     cueAt: -1,
     undoneAt: -1,
     intro: false,
-    slitX: 1,
-    slitY: 1,
-    flash: 0,
-    glint: 1,
+    appear: 1,
     push: 1,
-    rays: 0,
-    raysScale: 1,
-    spin: 0,
     card: 0,
-    type: 1,
-    track: TRACK_REST,
     rule: 1,
-    sheen: 1,
-    flare: 0,
-    streak: 0,
-    bars: 0,
   }));
 }
 
@@ -565,30 +510,13 @@ export function resetStationCues(frames: StationFrame[]) {
  */
 function playBeat(f: StationFrame, b: number, clarity: number) {
   f.intro = b < BEAT_END;
-  // Ignition: builds (ease-in) rather than switching on, holds a moment at
-  // full, then dies back slowly as the screen takes over from it.
-  const ignite = span(b, 0, 0.34);
-  f.flare = ignite * ignite * (1 - easeInOutCubic(span(b, 0.55, 2.2)));
-  f.streak = easeOutExpo(span(b, 0.04, 0.6));
-  f.slitX = easeOutExpo(span(b, 0.2, 0.62));
-  f.slitY = easeOutExpo(span(b, 0.44, 1.3));
-  // A flash frame: brief, then gone -- the picture takes over from it.
-  f.flash = easeOutCubic(span(b, 0.26, 0.46)) * (1 - span(b, 0.48, 1.3)) ** 2;
-  // Focus racks in from short of its resting softness.
-  f.res = clarity * lerp(0.55, 1, easeOutCubic(span(b, 0.45, 1.6)));
-  f.push = lerp(PUSH_FROM, 1, easeOutCubic(span(b, 0.3, 3.6)));
-  f.rays =
-    easeOutCubic(span(b, 0.36, 0.8)) * (1 - easeInOutCubic(span(b, 0.9, 3.1)));
-  f.raysScale = lerp(0.7, 1.12, easeOutCubic(span(b, 0.36, 3.1)));
-  f.spin = b * RAY_SPIN;
-  f.glint = easeInOutCubic(span(b, 1.05, 2));
-  f.card = easeOutCubic(span(b, 0.9, 1.5));
-  f.type = span(b, 0.95, 2.05);
-  f.track = lerp(TRACK_FROM, TRACK_REST, easeOutQuart(span(b, 0.95, 3.9)));
-  f.rule = easeOutExpo(span(b, 1.3, 2.4));
-  f.sheen = easeInOutCubic(span(b, 2.1, 3.1));
-  f.bars =
-    easeInOutCubic(span(b, 0, 0.75)) * (1 - easeInOutCubic(span(b, 3.3, 4.4)));
+  f.appear = easeInOutCubic(span(b, 0, 1.3));
+  // Focus comes in from soft as it fades up, so it condenses out of its
+  // light rather than arriving as a sharp card.
+  f.res = clarity * lerp(0.35, 1, easeOutCubic(span(b, 0, 1.8)));
+  f.push = lerp(PUSH_FROM, 1, easeOutCubic(span(b, 0, 2.2)));
+  f.card = easeInOutCubic(span(b, 0.7, 1.8));
+  f.rule = easeOutCubic(span(b, 1, 2.4));
 }
 
 /* ------------------------------------------------------------------ *
@@ -647,8 +575,6 @@ export function solveStations(
     // played on the clock from there, and taken back if the scroll backs
     // off past the cue again -- so it plays again on the way back down.
     f.intro = false;
-    f.flare = 0;
-    f.bars = 0;
     f.card = 0;
     f.push = 1;
     let undo = 1;
@@ -703,9 +629,7 @@ export function solveStations(
       // to get from this far off (`clarity`), for as long as `gate` says.
       if (f.cueAt >= 0) {
         playBeat(f, time - f.cueAt, distant.clarity);
-        alpha = gate * undo;
-        f.flare *= alpha;
-        f.bars *= alpha;
+        alpha = gate * undo * f.appear;
       } else {
         f.res = 0;
         alpha = 0;
@@ -926,130 +850,6 @@ function drawEmber(
   ctx.restore();
 }
 
-/**
- * What the entrances do to the lens rather than to the world: each one's
- * flare, and the letterbox. Drawn on the canvas above everything else --
- * a flare is in the glass, not out there, so the hole's matter and the
- * dust never cover it.
- */
-export function drawStationFlares(
-  ctx: CanvasRenderingContext2D,
-  stations: Station[],
-  frames: StationFrame[],
-  cssW: number,
-  cssH: number
-) {
-  let bars = 0;
-  ctx.globalCompositeOperation = "lighter";
-  for (let i = 0; i < stations.length; i++) {
-    const f = frames[i];
-    if (f.flare > 0.004) drawFlare(ctx, stations[i], f, cssW, cssH);
-    bars = Math.max(bars, f.bars);
-  }
-  ctx.globalCompositeOperation = "source-over";
-  ctx.globalAlpha = 1;
-
-  // Every entrance asks for widescreen, so overlapping ones share one set
-  // of bars rather than stacking.
-  if (bars > 0.002) {
-    const h = bars * Math.min(BAR_FRAC * cssH, BAR_MAX);
-    ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, cssW, h);
-    ctx.fillRect(0, cssH - h, cssW, h);
-  }
-}
-
-/** Ghost reflections a bright source throws along the line through the
- *  middle of the lens: where along it (1 = mirrored across the centre),
- *  size against the frame's height, strength, and whether it is a ring. */
-const GHOSTS = [
-  { k: 0.46, r: 0.03, a: 0.16, ring: false },
-  { k: 0.9, r: 0.075, a: 0.07, ring: true },
-  { k: 1.28, r: 0.022, a: 0.2, ring: false },
-  { k: 1.62, r: 0.11, a: 0.05, ring: false },
-] as const;
-
-function rgba(c: readonly number[], a: number) {
-  return `rgba(${c[0]},${c[1]},${c[2]},${Math.max(0, a).toFixed(4)})`;
-}
-
-function drawFlare(
-  ctx: CanvasRenderingContext2D,
-  s: Station,
-  f: StationFrame,
-  cssW: number,
-  cssH: number
-) {
-  const a = f.flare;
-  const x = f.x;
-  const y = f.y;
-  const warm = s.rgb;
-  // Sized against the screen as it is seen, so the flare belongs to it on
-  // any viewport.
-  const size = s.basePx * f.scale;
-
-  // The whole frame takes a little of the light as it peaks.
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = rgba(warm, a * 0.05);
-  ctx.fillRect(0, 0, cssW, cssH);
-
-  // Anamorphic streak: a hairline, then a soft wash around it. One radial
-  // gradient squashed flat, so it is thickest at the source and needles
-  // out to nothing, and it cools from white through the world's own light
-  // to lens blue along its length.
-  const len = cssW * lerp(0.1, 0.6, f.streak);
-  for (const [half, k] of [
-    [2.2, 1],
-    [size * 0.07, 0.28],
-  ] as const) {
-    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, len);
-    g.addColorStop(0, `rgba(255,255,255,${(a * k).toFixed(4)})`);
-    g.addColorStop(0.06, rgba(warm, a * k * 0.8));
-    g.addColorStop(0.3, rgba(FLARE_COOL, a * k * 0.36));
-    g.addColorStop(0.65, rgba(FLARE_COOL, a * k * 0.1));
-    g.addColorStop(1, rgba(FLARE_COOL, 0));
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.scale(1, half / len);
-    ctx.fillStyle = g;
-    ctx.fillRect(-len, -len, len * 2, len * 2);
-    ctx.restore();
-  }
-
-  // The hot core it all comes out of.
-  const core = size * lerp(0.08, 0.3, a);
-  const cg = ctx.createRadialGradient(x, y, 0, x, y, core);
-  cg.addColorStop(0, `rgba(255,255,255,${(a * 0.95).toFixed(4)})`);
-  cg.addColorStop(0.18, rgba(warm, a * 0.55));
-  cg.addColorStop(1, rgba(warm, 0));
-  ctx.fillStyle = cg;
-  ctx.fillRect(x - core, y - core, core * 2, core * 2);
-
-  // Ghosts, strung along the line through the middle of the frame.
-  const cx = cssW / 2;
-  const cy = cssH / 2;
-  for (let i = 0; i < GHOSTS.length; i++) {
-    const gh = GHOSTS[i];
-    const gx = x + (cx - x) * 2 * gh.k;
-    const gy = y + (cy - y) * 2 * gh.k;
-    const r = cssH * gh.r;
-    const tint = i % 2 ? FLARE_COOL : warm;
-    const g = ctx.createRadialGradient(gx, gy, 0, gx, gy, r);
-    if (gh.ring) {
-      g.addColorStop(0, rgba(tint, 0));
-      g.addColorStop(0.72, rgba(tint, 0));
-      g.addColorStop(0.88, rgba(tint, a * gh.a));
-      g.addColorStop(1, rgba(tint, 0));
-    } else {
-      g.addColorStop(0, rgba(tint, a * gh.a));
-      g.addColorStop(0.7, rgba(tint, a * gh.a * 0.6));
-      g.addColorStop(1, rgba(tint, 0));
-    }
-    ctx.fillStyle = g;
-    ctx.fillRect(gx - r, gy - r, r * 2, r * 2);
-  }
-}
-
 /* ------------------------------------------------------------------ *
  * DOM
  * ------------------------------------------------------------------ */
@@ -1085,24 +885,11 @@ function setMediaPlaying(node: HTMLElement, on: boolean) {
   else video.pause();
 }
 
-/** What an entrance writes, on the screen and on its title. Only while it
- *  is playing: once it ends they are removed, and the CSS's registered
- *  initial values -- which are the resting look -- take over. */
-const SCREEN_BEAT = [
-  "--ps-slit-x",
-  "--ps-slit-y",
-  "--ps-flash",
-  "--ps-glint",
-  "--ps-rays",
-  "--ps-rays-scale",
-  "--ps-spin",
-] as const;
-const CARD_BEAT = [
-  "--ps-type",
-  "--ps-track",
-  "--ps-rule",
-  "--ps-sheen",
-] as const;
+/** What an entrance writes on its title. Only while it is playing: once it
+ *  ends they are removed, and the CSS's registered initial values -- which
+ *  are the resting look -- take over. (The screen's own part of it is all
+ *  in its opacity and transform.) */
+const CARD_BEAT = ["--ps-rule"] as const;
 
 /** Flags a node as mid-entrance, or settles it back to rest. Returns
  *  whether the entrance's values should be written this frame. */
@@ -1139,20 +926,19 @@ function applyCard(
   }
   if (style.visibility !== "visible") style.visibility = "visible";
   style.opacity = o.toFixed(3);
-  // Under the screen's bottom edge as it is seen -- push-in included -- and
+  // Under the screen's bottom edge as it is seen -- settle included -- and
   // scaled only by the drift in its distance, since its type size is
-  // already set for where it rests.
+  // already set for where it rests. Rises the last little way as it fades.
   const y =
-    f.y + s.basePx * (9 / 32) * f.scale * f.push + s.cardPx * 0.9;
+    f.y +
+    s.basePx * (9 / 32) * f.scale * f.push +
+    s.cardPx * (0.9 + (1 - f.card) * CARD_RISE);
   const k = f.scale / (s.def.distant?.scale ?? 1);
   style.transform = `translate(${f.x.toFixed(1)}px, ${y.toFixed(
     1
   )}px) translate(-50%, 0) scale(${k.toFixed(4)})`;
   if (markIntro(card, f.intro, CARD_BEAT)) {
-    style.setProperty("--ps-type", f.type.toFixed(3));
-    style.setProperty("--ps-track", f.track.toFixed(3));
     style.setProperty("--ps-rule", f.rule.toFixed(3));
-    style.setProperty("--ps-sheen", f.sheen.toFixed(3));
   }
 }
 
@@ -1182,7 +968,7 @@ export function applyStationFrames(
     style.opacity = f.alpha.toFixed(3);
     // Translate to the projected centre, pull back by half the node's own
     // (unscaled) box, then take the distance scale (and an entrance's
-    // push-in). Transform only -- no layout is touched on any frame.
+    // settle). Transform only -- no layout is touched on any frame.
     style.transform = `translate(${f.x.toFixed(1)}px, ${f.y.toFixed(
       1
     )}px) translate(-50%, -50%) scale(${(f.scale * f.push).toFixed(4)})`;
@@ -1191,15 +977,6 @@ export function applyStationFrames(
     style.setProperty("--ps-haze", `${f.haze.toFixed(2)}px`);
     style.setProperty("--ps-yaw", `${f.yaw.toFixed(2)}deg`);
     style.setProperty("--ps-tilt", `${f.tilt.toFixed(2)}deg`);
-    if (markIntro(node, f.intro, SCREEN_BEAT)) {
-      style.setProperty("--ps-slit-x", f.slitX.toFixed(4));
-      style.setProperty("--ps-slit-y", f.slitY.toFixed(4));
-      style.setProperty("--ps-flash", f.flash.toFixed(3));
-      style.setProperty("--ps-glint", f.glint.toFixed(4));
-      style.setProperty("--ps-rays", f.rays.toFixed(3));
-      style.setProperty("--ps-rays-scale", f.raysScale.toFixed(4));
-      style.setProperty("--ps-spin", `${f.spin.toFixed(2)}deg`);
-    }
   }
 }
 

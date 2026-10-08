@@ -55,9 +55,6 @@ export default function ProjectStations({ nodesRef, depth }: Props) {
             data-distant={project.distant ? "" : undefined}
             style={{ "--ps-accent": project.accent } as CSSProperties}
           >
-            {/* God-rays, bursting out from behind the screen as it makes
-                its entrance. */}
-            <span className={styles.rays} />
             {/* Everything below turns with the panel, title included: it is
                 one object in space, not a card with a caption under it. */}
             <div className={styles.frame}>
@@ -82,10 +79,7 @@ export default function ProjectStations({ nodesRef, depth }: Props) {
                     </div>
                   )}
                   <span className={styles.vignette} />
-                  <span className={styles.glint} />
                 </div>
-                {/* The white-out it opens in, over whatever is playing. */}
-                <span className={styles.flash} />
                 <span className={styles.edge} />
                 <span className={styles.corners} />
                 <span className={styles.bloom} />
@@ -102,11 +96,6 @@ export default function ProjectStations({ nodesRef, depth }: Props) {
   );
 }
 
-/** Letters of a title, spaces made to hold their width. */
-function glyphs(title: string) {
-  return title.replace(/ /g, " ");
-}
-
 /**
  * Each distant world's name, as the credit its entrance ends on. Flat to the
  * lens, like any title, and in a layer of its own over the picture, so
@@ -118,7 +107,6 @@ function TitleCards({ nodesRef }: { nodesRef: StationNodes }) {
     <div className={styles.layer}>
       {PROJECTS.map((project, i) => {
         if (!project.distant) return null;
-        const text = glyphs(project.title);
         return (
           <div
             key={project.id}
@@ -126,33 +114,10 @@ function TitleCards({ nodesRef }: { nodesRef: StationNodes }) {
               nodesRef.current[i] = node;
             }}
             className={styles.card}
-            style={
-              {
-                "--ps-accent": project.accent,
-                "--n": text.length,
-              } as CSSProperties
-            }
+            style={{ "--ps-accent": project.accent } as CSSProperties}
           >
             <span className={styles.cardRule} />
-            <span className={styles.cardTitle}>
-              <span className={styles.srOnly}>{project.title}</span>
-              <span className={styles.cardLetters} aria-hidden="true">
-                {[...text].map((ch, j) => (
-                  <span
-                    key={j}
-                    className={styles.letter}
-                    style={{ "--i": j } as CSSProperties}
-                  >
-                    {ch}
-                  </span>
-                ))}
-              </span>
-              {/* The same line again, as nothing but the light running
-                  across it. */}
-              <span className={styles.cardSheen} aria-hidden="true">
-                {text}
-              </span>
-            </span>
+            <span className={styles.cardTitle}>{project.title}</span>
             <span className={styles.cardRule} data-end="trail" />
           </div>
         );

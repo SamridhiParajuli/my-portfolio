@@ -20,8 +20,10 @@
  * And at the last (bookFinale), it gives itself up: pressed flat into one
  * sheet of parchment that is drawn here too (parchmentScroll), its leather
  * burning away like paper at the edge of a coal, and the parchment written
- * in its turn (contactPage). All of that is off -- and the book exactly
- * what it was -- until then.
+ * in its turn (contactPage). On the way, the parchment grows old -- its
+ * head and tail worn ragged -- and the rollers it is rolled on grow out of
+ * its rolls. All of that is off -- and the book exactly what it was --
+ * until then.
  */
 
 import {
@@ -39,6 +41,7 @@ import {
   type BookMesh,
   type PartKey,
 } from "./bookMesh";
+import { LH_FINAL, ROD_EXT } from "./parchmentScroll";
 
 type GL = WebGLRenderingContext | WebGL2RenderingContext;
 
@@ -60,10 +63,12 @@ const MAP_OF: Record<PartKey, GLMapKey> = {
   fore: "fore",
   sheet: "paper",
   sheetBack: "parch",
+  // (Any map: the rollers' wood and brass are worked out in the shader.)
+  rod: "spine",
 };
 
 /** What each part is, to the shader: 0 leather, 1 the leaves, 2 the
- *  parchment's face, 3 its back. */
+ *  parchment's face, 3 its back, 4 its rollers. */
 const KIND_OF: Record<PartKey, number> = {
   cover: 0,
   inner: 0,
@@ -76,6 +81,7 @@ const KIND_OF: Record<PartKey, number> = {
   fore: 1,
   sheet: 2,
   sheetBack: 3,
+  rod: 4,
 };
 
 /** Where the book is pressed to as it goes into the parchment: just under
@@ -83,6 +89,8 @@ const KIND_OF: Record<PartKey, number> = {
 const Z_UNDER = -0.006;
 /** The middle of the open spread, where the gutter is. */
 const XC = BOOK.X0 - T;
+/** The parchment's width over its height. */
+const SHEET_ASPECT = LH_FINAL / YP;
 
 /** How deep the ink is pressed into the page, as a slope at its edges. */
 const INK_PRESS = 0.16;
@@ -189,6 +197,9 @@ uniform float uInkCOn;
 uniform vec2 uInkCT;
 uniform vec2 uInkCPx;
 uniform float uInkCAsp;
+uniform float uAge;
+uniform float uRag;
+uniform float uRod;
 varying vec3 vSc;
 varying vec3 vL0;
 varying vec3 vW;
@@ -205,10 +216,12 @@ const vec3 FILL_COL = vec3(${BOOK.FILL_COL.map(f).join(",")});
 const vec3 AMB = vec3(${BOOK.AMB.map(f).join(",")});
 const vec3 RIM = vec3(${BOOK.RIM_COL.map(f).join(",")});
 const vec3 SPEC0 = vec3(0.34, 0.3, 0.26);
-// Iron-gall ink gone brown, and the faded red of a rubric: both multiply
-// the paper, so its grain and toning stay in them.
+// Iron-gall ink gone brown, and the faded red of a rubric (the parchment's);
+// and the book's own pages, in black. All multiply the paper, so its grain
+// and toning stay in them.
 const vec3 INK_DARK = vec3(0.2, 0.15, 0.12);
 const vec3 INK_RED = vec3(0.6, 0.25, 0.17);
+const vec3 INK_BLACK = vec3(0.035, 0.032, 0.03);
 const vec3 CANDLE = vec3(1.0, 0.6, 0.28);
 // The edge the book goes back to light along, as it goes into the
 // parchment; and the parchment's hair side, a shade darker and warmer than
@@ -216,6 +229,14 @@ const vec3 CANDLE = vec3(1.0, 0.6, 0.28);
 const vec3 EMBER = vec3(1.0, 0.7, 0.36);
 const vec3 EMBER_PAGE = vec3(1.0, 0.86, 0.6);
 const vec3 HAIR = vec3(0.86, 0.78, 0.68);
+// The ancient parchment it becomes (as antiqueBook bakes it, near enough):
+// old vellum, and the brown its worn edges have gone. And its rollers: dark
+// old wood, and tarnished brass.
+const vec3 VELLUM = vec3(0.6, 0.47, 0.3);
+const vec3 SCORCH = vec3(0.5, 0.33, 0.2);
+const vec3 WOOD = vec3(0.3, 0.17, 0.085);
+const vec3 WOOD_DARK = vec3(0.12, 0.065, 0.03);
+const vec3 BRASS = vec3(0.6, 0.45, 0.21);
 float hash(vec2 p) {
   return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
 }
@@ -247,6 +268,21 @@ float leatherField(vec3 p) {
 // The leaves under the parchment go from their fore-edges in.
 float pagesField(vec3 p) {
   return 0.7 * (1.0 - clamp(abs(p.x - ${f(XC)}) / 0.8, 0.0, 1.0)) + 0.3 * n3(p * 1.7 + 3.0);
+}
+// The page, gone old: the colour of old vellum, mottled, with the tide
+// lines of water that once got to it, and browner toward its head and tail;
+// keeping the grain of the paper it was. ap: across and down it, in its
+// heights; edge: how far it is from its head or tail.
+vec3 agedParch(vec2 ap, float edge, vec3 was) {
+  float m = 0.6 * vnoise(ap * 3.2 + 13.0) + 0.4 * vnoise(ap * 10.0 - 4.0);
+  vec3 c = VELLUM * (0.84 + 0.3 * m);
+  float st = vnoise(ap * 2.1 + 31.0);
+  float stain = smoothstep(0.6, 0.7, st);
+  c *= 1.0 - 0.12 * stain;
+  // (Its rim a little darker, where the water dried.)
+  c *= 1.0 - 0.08 * stain * (1.0 - smoothstep(0.7, 0.8, st));
+  c *= mix(vec3(1.0), vec3(0.8, 0.66, 0.5), smoothstep(0.16, 0.0, edge));
+  return c * clamp(dot(was, vec3(0.3333)) / 0.4733, 0.6, 1.3);
 }
 float tone(float c) {
   float x = max(c, 0.0);
@@ -317,11 +353,44 @@ void main() {
       ember *= ember;
     }
   }
+  // A roller, growing out of its roll past the parchment's head and tail:
+  // there out to where it has got to, and hot at the front.
+  float rodAn = vUv.x * 6.28318;
+  vec2 rodRing = vec2(cos(rodAn), sin(rodAn));
+  if (uKind > 3.5) {
+    float past = max(0.0, abs(vL0.y) - ${f(YP)}) / ${f(ROD_EXT)};
+    float fr = past + 0.08 * (vnoise(rodRing * 1.6 + vL0.y * 40.0) - 0.5);
+    if (fr > uRod) discard;
+    ember = smoothstep(uRod - 0.3, uRod, fr) * (1.0 - smoothstep(1.0, 1.15, uRod));
+  }
   vec4 A = texture2D(uA, vUv);
   vec4 B = texture2D(uB, vUv);
   vec4 M = texture2D(uM, vUv);
   vec3 alb = A.rgb;
-  if (uKind > 2.5) alb *= HAIR;
+  if (uKind > 2.5 && uKind < 3.5) alb *= HAIR;
+  // The parchment (its face and its back), across it and down it.
+  if (uKind > 1.5 && uKind < 3.5) {
+    vec2 sp = vSc.xy;
+    vec2 ap = sp * vec2(${f(SHEET_ASPECT)}, 1.0);
+    float edge = min(sp.y, 1.0 - sp.y);
+    // Its face, still laid as the pages it was, going old: in from its head
+    // and tail first, unevenly, to the parchment it is becoming.
+    if (uAge > 0.0) {
+      float reach = uAge * 1.5 - 0.5 * smoothstep(0.0, 0.5, edge) - 0.3 * vnoise(ap * 3.0 + 2.0);
+      alb = mix(alb, agedParch(ap, edge, alb), clamp(reach * 2.2, 0.0, 1.0));
+    }
+    // Its head and tail, worn ragged, and browned where they are.
+    if (uRag > 0.0) {
+      float hd = step(0.5, sp.y);
+      float n = 0.55 * vnoise(vec2(ap.x * 26.0, hd * 17.0)) +
+        0.3 * vnoise(vec2(ap.x * 85.0, hd * 29.0 + 3.0)) +
+        0.15 * vnoise(vec2(ap.x * 240.0, hd * 41.0 + 7.0));
+      float cut = uRag * (0.003 + 0.034 * n * n);
+      if (edge < cut) discard;
+      float sc = 1.0 - smoothstep(cut, cut + 0.05, edge);
+      alb *= mix(vec3(1.0), SCORCH, sc * sc * uRag);
+    }
+  }
   float occ = A.a * vAux.x;
   float du = (B.r * 2.0 - 1.0) * ${f(SLOPE_RANGE)};
   float dv = (B.g * 2.0 - 1.0) * ${f(SLOPE_RANGE)};
@@ -329,6 +398,22 @@ void main() {
   float specPow = max(B.a * 40.0, 1.0);
   float metal = M.r;
   float sheen = M.a * 0.1;
+  // The rollers: old turned wood, its grain along it, darker toward the
+  // ends where it has been held; and its collars and caps brass (vUv.y).
+  if (uKind > 3.5) {
+    float gr = 0.6 * vnoise(rodRing * 5.0 + vL0.y * vec2(1.2, -0.8)) +
+      0.4 * vnoise(rodRing * 16.0 + vL0.y * vec2(3.0, 2.0) + 7.0);
+    float held = smoothstep(${f(YP)}, ${f(YP + ROD_EXT)}, abs(vL0.y));
+    alb = mix(WOOD_DARK, WOOD, gr) * (1.0 - 0.25 * held);
+    alb = mix(alb, BRASS * (0.75 + 0.4 * gr), vUv.y);
+    occ = vAux.x;
+    du = 0.0;
+    dv = 0.0;
+    specK = mix(0.14, 0.55, vUv.y);
+    specPow = mix(16.0, 34.0, vUv.y);
+    metal = vUv.y;
+    sheen = 0.03;
+  }
   // The written pages: only on the faces that are pages (vPg.x >= 0; the
   // map holds them side by side, a page to each part of it), and only where
   // the pen has been. G is when it got there, so every spot takes its ink
@@ -358,9 +443,9 @@ void main() {
   // ...and the last page, as the book goes into the parchment.
   gone = max(gone, uFadeExp * step(${f((INK_PAGES - 1) / INK_PAGES)}, vPg.x));
   float keep = 1.0 - smoothstep(0.0, 1.0, gone * 1.28 - 0.28 * vnoise(pp * vec2(4.0, 3.0)));
-  float ink = onPage * cover * shown * took * keep;
-  vec3 inkCol = mix(INK_DARK, INK_RED, I.b);
-  alb = mix(alb, alb * mix(inkCol, inkCol * 1.35 + 0.04, wet), ink);
+  // (Laid on full, so even its hairlines read black, not brown.)
+  float ink = onPage * keep * min(1.0, cover * shown * took * 1.3);
+  alb = mix(alb, alb * mix(INK_BLACK, INK_BLACK * 1.35 + 0.04, wet), ink);
   // Pressed into the page: its edges catch the light like an impression.
   // The map's x runs against the leaf's u on a page's back face and with
   // it on the front (vPg.z); its y always against v (bookMesh).
@@ -373,7 +458,7 @@ void main() {
   specK += 0.18 * wet * ink;
   // The parchment, written once it lies open (contactPage): the same ink
   // and the same pen, on a map and a clock of its own.
-  if (uInkCOn > 0.0 && vSc.x >= 0.0) {
+  if (uInkCOn > 0.0 && vSc.z > 0.5) {
     vec4 J = texture2D(uInkC, vSc.xy);
     vec2 cp = vSc.xy * vec2(uInkCAsp, 1.0);
     float ragC = vnoise(cp * vec2(64.0, 88.0)) - 0.5;
@@ -426,7 +511,9 @@ void main() {
   col += alb * vec3(${BOUNCE.map(f).join(", ")}) * vDown;
   col += alb * KEY_COL * max(0.0, -dot(n, uKey)) * uTrans * vAux.z * pool;
   // The light at the front, as the book goes back into it.
-  col += (uKind < 0.5 ? EMBER * 0.95 : EMBER_PAGE * 0.35) * ember * uEmber;
+  // (The rollers' front is their own, and outlasts the book's.)
+  bool hot = uKind < 0.5 || uKind > 3.5;
+  col += (hot ? EMBER * 0.95 : EMBER_PAGE * 0.35) * ember * (uKind > 3.5 ? 1.0 : uEmber);
   gl_FragColor = vec4(tone(col.r), tone(col.g), tone(col.b), 1.0);
 }
 `;
@@ -487,6 +574,11 @@ export type BookView = {
   /** Which map the parchment's face is laid with: the pages it takes the
    *  place of, then its own. */
   sheetMap: "paper" | "parch";
+  /** How old its face has grown while it is still laid as the pages; how
+   *  ragged its head and tail are; how far its rollers have grown. */
+  age: number;
+  rag: number;
+  rods: number;
   /** Whether there is anything left of the book itself to draw. */
   book: boolean;
   /** How far from its middle anything of it can be, for the depth test. */
@@ -571,6 +663,9 @@ const UNIFORMS = [
   "uInkCT",
   "uInkCPx",
   "uInkCAsp",
+  "uAge",
+  "uRag",
+  "uRod",
 ];
 
 function compile(gl: GL, type: number, src: string) {
@@ -823,6 +918,8 @@ export function drawBookGL(g: BookGL, v: BookView) {
   gl.uniform2fv(u.uInkCT, v.inkCT);
   gl.uniform2fv(u.uInkCPx, g.inkCPx);
   gl.uniform1f(u.uInkCAsp, g.inkCAsp);
+  gl.uniform1f(u.uRag, v.rag);
+  gl.uniform1f(u.uRod, v.rods);
   if (g.ink) {
     gl.activeTexture(gl.TEXTURE3);
     gl.bindTexture(gl.TEXTURE_2D, g.ink);
@@ -843,6 +940,7 @@ export function drawBookGL(g: BookGL, v: BookView) {
     const t = g.tex[key] ?? (key === "parch" ? g.tex.paper : undefined);
     if (!t) continue;
     gl.uniform1f(u.uKind, kind);
+    gl.uniform1f(u.uAge, k === "sheet" && v.sheetMap === "paper" ? v.age : 0);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, t.a);
     gl.activeTexture(gl.TEXTURE1);
