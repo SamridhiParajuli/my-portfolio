@@ -294,6 +294,8 @@ export default function BannerParticlePortal({
   const stationNodesRef = useRef<(HTMLDivElement | null)[]>([]);
   // ...and each distant world's title card, in a layer over everything.
   const cardNodesRef = useRef<(HTMLDivElement | null)[]>([]);
+  // ...and what each one is, in the sky opposite its screen.
+  const infoNodesRef = useRef<(HTMLElement | null)[]>([]);
   const revealedRef = useRef(revealed);
   const onGatewayRef = useRef(onGateway);
   const onSectionRef = useRef(onSection);
@@ -794,7 +796,12 @@ export default function BannerParticlePortal({
       if (frames.length !== stations.length) {
         frames = makeFrames(stations.length);
       }
-      setStationWidths(stationNodesRef.current, cardNodesRef.current, stations);
+      setStationWidths(
+        stationNodesRef.current,
+        cardNodesRef.current,
+        infoNodesRef.current,
+        stations
+      );
       // The guide is one of these particles, and rests beside those worlds.
       layoutGuide(
         guide,
@@ -863,6 +870,7 @@ export default function BannerParticlePortal({
         applyStationFrames(
           stationNodesRef.current,
           cardNodesRef.current,
+          infoNodesRef.current,
           stations,
           frames
         );
@@ -925,7 +933,11 @@ export default function BannerParticlePortal({
       // Still in the banner's own leg: the projects do not exist yet, and
       // each will make its entrance again once the journey reaches it --
       // nor does the book, which hands back what it took.
-      hideStations(stationNodesRef.current, cardNodesRef.current);
+      hideStations(
+        stationNodesRef.current,
+        cardNodesRef.current,
+        infoNodesRef.current
+      );
       resetStationCues(frames);
       eduE = 0;
       resetBookOpening(opening, journey);
@@ -1450,6 +1462,7 @@ export default function BannerParticlePortal({
       <canvas ref={bookCanvasRef} className={styles.book} aria-hidden="true" />
       <canvas ref={dustCanvasRef} className={styles.canvas} aria-hidden="true" />
       <ProjectStations nodesRef={cardNodesRef} depth="titles" />
+      <ProjectStations nodesRef={infoNodesRef} depth="info" />
       <button
         ref={bookHitRef}
         type="button"

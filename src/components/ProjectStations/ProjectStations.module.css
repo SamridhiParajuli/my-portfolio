@@ -35,6 +35,11 @@
   inherits: true;
   initial-value: 1;
 }
+@property --ps-info {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 1;
+}
 
 .layer {
   /* Sits between the journey canvas and the dust canvas above it, so these
@@ -383,12 +388,176 @@
   font-weight: 500;
   line-height: 1.2;
   text-transform: uppercase;
-  /* The site's own title tracking. The padding matches the space after the
-     last letter, so the name sits centred between its rules. */
-  letter-spacing: 0.44em;
-  padding-left: 0.44em;
+  /* A little under the site's own title tracking, so a project's full name
+     still reads as one credit under its screen. The padding matches the
+     space after the last letter, so the name sits centred between its
+     rules. */
+  letter-spacing: 0.32em;
+  padding-left: 0.32em;
   color: rgba(244, 230, 211, 0.95);
   text-shadow: 0 0 0.9em rgba(var(--ps-accent), 0.55);
+}
+
+/* ---- the panel: what each world is ---- */
+
+.info {
+  /* Set in the empty sky opposite its screen (placeInfo in JS), flat to the
+     lens. Its type is the book's own Garamond -- the book the journey ends
+     in -- with its facts in the site's sans, small. No box: a soft dark
+     breath behind it keeps it legible over the stars. */
+  position: absolute;
+  left: 0;
+  top: 0;
+  isolation: isolate;
+  width: var(--ps-info-w, 380px);
+  visibility: hidden;
+  opacity: 0;
+  will-change: transform, opacity;
+  color: rgba(244, 233, 216, 0.95);
+  font-family: var(--font-book), Georgia, serif;
+  --ps-accent: 255, 198, 146;
+}
+
+.info::before {
+  content: "";
+  position: absolute;
+  inset: -16% -12%;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(
+    closest-side,
+    rgba(9, 6, 6, 0.72),
+    rgba(9, 6, 6, 0.44) 58%,
+    rgba(9, 6, 6, 0)
+  );
+}
+
+.info > * {
+  /* Each line comes in on its own share of the entrance (--line, inline),
+     one after another, rising the last little way. */
+  --in: clamp(0, (var(--ps-info) - var(--line, 0) * 0.15) / 0.55, 1);
+  margin: 0;
+  opacity: var(--in);
+  transform: translateY(calc((1 - var(--in)) * 0.45em));
+}
+
+.infoKind {
+  /* What it is, in the world's own light, drawn off the same rule as its
+     title. */
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  color: rgba(var(--ps-accent), 0.95);
+}
+
+.infoKind::before {
+  content: "";
+  flex: none;
+  width: 32px;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    rgba(var(--ps-accent), 0),
+    rgba(var(--ps-accent), 0.9)
+  );
+}
+
+.infoTagline {
+  margin-top: 0.42em;
+  font-size: clamp(26px, 2.4vw, 36px);
+  font-style: italic;
+  font-weight: 400;
+  line-height: 1.12;
+  letter-spacing: -0.005em;
+  text-wrap: balance;
+  color: rgba(248, 238, 222, 0.98);
+  text-shadow: 0 0 28px rgba(var(--ps-accent), 0.32);
+}
+
+.infoSummary {
+  margin-top: 0.85em;
+  font-size: clamp(16px, 1.2vw, 18px);
+  line-height: 1.58;
+  font-variant-numeric: oldstyle-nums;
+  text-wrap: pretty;
+  color: rgba(236, 224, 206, 0.86);
+}
+
+.infoFacts {
+  display: grid;
+  gap: 8px;
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(var(--ps-accent), 0.26);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.infoFact {
+  display: grid;
+  grid-template-columns: 6.6em 1fr;
+  gap: 14px;
+}
+
+.infoFact dt {
+  color: rgba(var(--ps-accent), 0.88);
+}
+
+.infoFact dd {
+  margin: 0;
+  color: rgba(236, 224, 206, 0.84);
+}
+
+.infoFact a {
+  /* The one thing in the sky that can be clicked. */
+  pointer-events: auto;
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: rgba(var(--ps-accent), 0.55);
+  text-underline-offset: 3px;
+  overflow-wrap: anywhere;
+  transition: color 0.2s ease, text-decoration-color 0.2s ease;
+}
+
+.infoFact a:hover {
+  color: rgba(255, 248, 236, 1);
+  text-decoration-color: rgba(var(--ps-accent), 1);
+}
+
+.infoFact a:focus-visible {
+  outline: 1px solid rgba(var(--ps-accent), 0.8);
+  outline-offset: 3px;
+}
+
+.info[data-narrow] .infoTagline {
+  font-size: 22px;
+}
+
+.info[data-narrow] .infoSummary {
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.info[data-narrow] .infoFacts {
+  margin-top: 14px;
+  padding-top: 12px;
+  font-size: 12.5px;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 @keyframes scanDrift {

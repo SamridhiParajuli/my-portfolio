@@ -93,8 +93,8 @@ const HOT = "255,246,232";
 /** Resting with a world: its gap from the world (in frame heights), how
  *  much room its name takes under it (in the name's own size), and its
  *  slow drift there (px at 900 tall). */
-const HOVER_GAP = 0.035;
-const TITLE_CLEAR = 2.6;
+export const HOVER_GAP = 0.035;
+export const TITLE_CLEAR = 2.6;
 const IDLE = 4;
 /** Between worlds: how far ahead of the camera it draws at the middle of
  *  the way (UNIT), and how far its way bows toward the middle of frame

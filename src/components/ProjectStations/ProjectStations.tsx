@@ -1,6 +1,7 @@
 "use client";
 
 import type { CSSProperties } from "react";
+import Image from "next/image";
 import { PROJECTS } from "./projects";
 import styles from "./ProjectStations.module.css";
 
@@ -25,17 +26,19 @@ import styles from "./ProjectStations.module.css";
  * layer it is in, so the nodes line up with the stations either way.
  */
 
-export type StationNodes = { current: (HTMLDivElement | null)[] };
+export type StationNodes = { current: (HTMLElement | null)[] };
 
 type Props = {
   nodesRef: StationNodes;
   /** "far": only the distant worlds, under the universe. "near": the rest.
-   *  "titles": the distant worlds' title cards, over everything. */
-  depth: "far" | "near" | "titles";
+   *  "titles": the distant worlds' title cards, over everything. "info":
+   *  what each one is, in the sky opposite it. */
+  depth: "far" | "near" | "titles" | "info";
 };
 
 export default function ProjectStations({ nodesRef, depth }: Props) {
   if (depth === "titles") return <TitleCards nodesRef={nodesRef} />;
+  if (depth === "info") return <InfoPanels nodesRef={nodesRef} />;
   return (
     <div className={styles.layer}>
       {PROJECTS.map((project, i) => {
@@ -70,6 +73,17 @@ export default function ProjectStations({ nodesRef, depth }: Props) {
                       loop
                       playsInline
                       preload="none"
+                    />
+                  ) : project.image ? (
+                    // Eager: it is far down the journey, but must already
+                    // have painted by the time its screen fades up.
+                    <Image
+                      src={project.image.src}
+                      alt={project.image.alt}
+                      fill
+                      sizes="(max-width: 768px) 60vw, 44vw"
+                      loading="eager"
+                      style={{ objectPosition: project.image.position }}
                     />
                   ) : (
                     <div className={styles.placeholder}>
@@ -120,6 +134,63 @@ function TitleCards({ nodesRef }: { nodesRef: StationNodes }) {
             <span className={styles.cardTitle}>{project.title}</span>
             <span className={styles.cardRule} data-end="trail" />
           </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * What each distant world is, set in the empty sky on the far side of the
+ * frame from its screen while the camera rests in front of it. Flat to the
+ * lens and over everything, like its title. Placed and faded by
+ * projectStations, which also staggers its lines in on the entrance's own
+ * clock (--ps-info).
+ */
+function InfoPanels({ nodesRef }: { nodesRef: StationNodes }) {
+  return (
+    <div className={styles.layer}>
+      {PROJECTS.map((project, i) => {
+        if (!project.distant) return null;
+        const { about } = project;
+        return (
+          <article
+            key={project.id}
+            ref={(node) => {
+              nodesRef.current[i] = node;
+            }}
+            className={styles.info}
+            style={{ "--ps-accent": project.accent } as CSSProperties}
+          >
+            {/* Its name is the credit under its screen; said here too for
+                anyone not seeing either. */}
+            <h3 className={styles.srOnly}>{project.title}</h3>
+            <p className={styles.infoKind} style={{ "--line": 0 } as CSSProperties}>
+              {about.kind}
+            </p>
+            <p className={styles.infoTagline} style={{ "--line": 1 } as CSSProperties}>
+              {about.tagline}
+            </p>
+            <p className={styles.infoSummary} style={{ "--line": 2 } as CSSProperties}>
+              {about.summary}
+            </p>
+            <dl className={styles.infoFacts} style={{ "--line": 3 } as CSSProperties}>
+              {about.facts.map((fact) => (
+                <div key={fact.label} className={styles.infoFact}>
+                  <dt>{fact.label}</dt>
+                  <dd>
+                    {fact.href ? (
+                      <a href={fact.href} target="_blank" rel="noreferrer">
+                        {fact.value}
+                      </a>
+                    ) : (
+                      fact.value
+                    )}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </article>
         );
       })}
     </div>

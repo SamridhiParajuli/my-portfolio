@@ -18,10 +18,10 @@
  *   0.25 the frame is ruled, from the middle of its head round both ways
  *        to the middle of its foot;
  *   0.3  a warm light, like a candle carried past, crosses it;
- *   1.0  "Contact" is written as it goes by, and its rule under it;
- *   2.3  the entries: each name, then its address, one after another --
+ *   0.8  "Contact" is written as it goes by, and its rule under it;
+ *  ~1.6  the entries: each name, then its address, one after another --
  *        on a wide screen two to a row, the right one a beat behind;
- *  ~7.5  all of it written. The ink dries, and there it stays.
+ *  ~3.7  all of it written. The ink dries, and there it stays.
  */
 
 import { YP } from "./bookMesh";
@@ -70,19 +70,23 @@ const CANDLE: [number, number] = [0.3, 3.5];
 const FRAME_AT = 0.25;
 const FRAME_DUR = 1.1;
 const FRAME_LAG = 0.2;
-const HEADING_AT = 1.0;
+const HEADING_AT = 0.8;
 /** A heading takes this, and this much more for every sheet-height of it;
  *  a line likewise -- so the pen keeps one pace however wide the parchment
  *  opens. */
-const HEAD_BASE = 0.6;
-const HEAD_PER_HEIGHT = 1.22;
-const LINE_BASE = 0.3;
-const LINE_PER_HEIGHT = 1.15;
+const HEAD_BASE = 0.3;
+const HEAD_PER_HEIGHT = 0.6;
+const LINE_BASE = 0.15;
+const LINE_PER_HEIGHT = 0.55;
+/** The heading's rule: how long it takes, and the pause after it before
+ *  the entries. */
+const RULE_DUR = 0.4;
+const RULE_GAP = 0.15;
 /** Between an entry's name and its address, and between entries; and how
  *  far a right-hand entry follows its fellow on the left. */
 const LABEL_GAP = 0.05;
-const ENTRY_GAP = 0.35;
-const FACING_LAG = 0.6;
+const ENTRY_GAP = 0.15;
+const FACING_LAG = 0.3;
 /** Once it is written, the ink dries; and the clock runs on this long. */
 const DRY = 2;
 
@@ -381,7 +385,7 @@ export function bakeContact(
   head.t0 = HEADING_AT;
   head.t1 = head.t0 + HEAD_BASE + (head.w / H) * HEAD_PER_HEIGHT;
   rule.t0 = head.t1 - 0.2;
-  rule.t1 = rule.t0 + 0.7;
+  rule.t1 = rule.t0 + RULE_DUR;
   const place = (row: Row, at: number) => {
     if (row.sep) {
       row.sep.t0 = at - 0.2;
@@ -393,7 +397,7 @@ export function bakeContact(
     row.value.t1 = row.value.t0 + lineDur(row.value.w);
   };
   // Row by row; two to a row, the right-hand one a beat behind the left.
-  let c = rule.t1 + 0.25;
+  let c = rule.t1 + RULE_GAP;
   const perRow = pairs ? 2 : 1;
   for (let r = 0; r * perRow < rows.length; r++) {
     let end = c;

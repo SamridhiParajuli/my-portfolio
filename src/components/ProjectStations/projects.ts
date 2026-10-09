@@ -31,14 +31,36 @@
  * has to change when the real demo videos arrive: set `media` and the
  * position, scale, perspective, timing and the dust around each screen all
  * stay exactly as they are.
+ *
+ * What each project *is* lives here too (`about`): the panel set in the
+ * empty side of the sky opposite its screen while the camera rests there.
  */
 
 import { HORIZON_Z } from "@/components/BannerParticlePortal/blackHoleJourney";
+
+/** One line of a project's facts: what it was built with, what it achieved,
+ *  where its code is. */
+export type ProjectFact = {
+  label: string;
+  value: string;
+  href?: string;
+};
+
+export type ProjectAbout = {
+  /** What kind of thing it is, in a few plain words. */
+  kind: string;
+  /** The line the panel opens on. */
+  tagline: string;
+  /** What it does and how, in a few sentences. */
+  summary: string;
+  facts: readonly ProjectFact[];
+};
 
 export type ProjectStationDef = {
   id: string;
   /** Only ever on screen while the camera is actually near this place. */
   title: string;
+  about: ProjectAbout;
   /** "r,g,b" -- the light this place throws into the space around it.
    *  Warms near the galaxy, cools and turns stranger with depth. */
   accent: string;
@@ -50,6 +72,10 @@ export type ProjectStationDef = {
   media: string | null;
   /** Optional still shown until the video can paint. */
   poster: string | null;
+  /** A still for the slot while there is no video: a path under /public,
+   *  what it shows, and (CSS object-position) which part of it to keep when
+   *  it is not the screen's shape -- the middle, if not said. */
+  image: { src: string; alt: string; position?: string } | null;
 
   /* --- where it is --- */
 
@@ -103,11 +129,16 @@ export type ProjectStationDef = {
     /** How large it reads there, against its layout width -- so its detail
      *  is drawn at the scale it is actually seen at. */
     scale: number;
-    /** How far out of the haze it ever comes, 0..1. From this far off it
-     *  is a shape with a little detail, never a crisp screen. */
+    /** How far out of the haze it ever comes, 0..1. Near 1 now that each
+     *  screen holds a picture of its project, which has to be made out --
+     *  just short of it, so it is still a thing seen from far off. */
     clarity: number;
     /** Camera distances (UNIT) between which it fades away. */
     lost: readonly [number, number];
+    /** Where its panel goes down the frame: level with it (the default) --
+     *  hanging from its top, or up from the foot of its title -- or centred
+     *  in the room between the header and the foot of the frame. */
+    panel?: "level" | "centred";
   };
 
   /* --- the space it stands in --- */
@@ -132,6 +163,9 @@ export type ProjectStationDef = {
  *  surfaced, in UNIT -- far enough that the rest of its time in view changes
  *  how large it reads by under a tenth: it never grows toward the camera. */
 const INSIDE_BEYOND = 150;
+/** How large every world reads once it has surfaced (`distant.scale`):
+ *  near enough that the picture on its screen can be made out. */
+const WORLD_SCALE = 0.62;
 /** Where the camera comes to rest in front of each world, in UNIT past the
  *  horizon -- evenly apart, so every stretch of the flight between two of
  *  them is the same length of travel. The fall ends 31.5 past. */
@@ -173,10 +207,35 @@ export const PROJECTS: readonly ProjectStationDef[] = [
     // haze as the camera follows the guide through, and it makes its
     // entrance as the camera comes to rest in front of it.
     id: "project-01",
-    title: "Project 01",
+    title: "Talk to Database",
+    about: {
+      kind: "Speech-to-SQL system",
+      tagline: "Ask your database a question, out loud.",
+      summary:
+        "Speak a question in plain English. Whisper turns it into text, a fine-tuned text-to-SQL model writes the query, and a FastAPI service runs it against whichever database is connected. The answer comes back in a Next.js interface as a clean table, visualized in real time.",
+      facts: [
+        {
+          label: "Built with",
+          value: "Python, Whisper, Text2SQL (NSQL-350M, fine-tuned with PEFT), FastAPI, Next.js",
+        },
+        {
+          label: "Results",
+          value: "90%+ query accuracy; about 60% less time spent querying by hand",
+        },
+        {
+          label: "Source",
+          value: "github.com/SamridhiParajuli/TalkToDatabase",
+          href: "https://github.com/SamridhiParajuli/TalkToDatabase",
+        },
+      ],
+    },
     accent: "255, 198, 146",
     media: null,
     poster: null,
+    image: {
+      src: "/images/projects/talk-to-database.png",
+      alt: "Illustration of a girl at her desk chatting with a friendly database character in front of a screen of code",
+    },
     z: WORLD_01_Z,
     offX: 1,
     offY: -1,
@@ -190,9 +249,9 @@ export const PROJECTS: readonly ProjectStationDef[] = [
     ),
     fadeOut: null,
     distant: {
-      frame: [0.69, 0.25],
-      scale: 0.46,
-      clarity: 0.62,
+      frame: [0.69, 0.3],
+      scale: WORLD_SCALE,
+      clarity: 0.94,
       lost: seen(WORLD_01_Z, HORIZON_Z + HOLD_01 + 1.2, HORIZON_Z + HOLD_02),
     },
     // Never near enough for its cloud to show; every place has one.
@@ -200,17 +259,40 @@ export const PROJECTS: readonly ProjectStationDef[] = [
   },
   /*
    * The other four are distant worlds exactly as the first is: the same
-   * size, softness and fade, each hanging in its own part of the sky. Each
+   * softness, size and fade, each hanging in its own part of the sky. Each
    * one's light rises as the camera leaves the one before, and the one
    * before thins away as the camera goes on to it.
    */
   {
     // Upper left.
     id: "project-02",
-    title: "Project 02",
+    title: "Guff – Real-Time Chat Application",
+    about: {
+      kind: "Messaging web app",
+      tagline: "Chat that keeps up with the conversation.",
+      summary:
+        "Guff delivers messages the instant they are sent, and shows who is typing and when a message has been read. It runs on Next.js, with Redis handling data fast enough to stay low-latency while many people talk at once.",
+      facts: [
+        { label: "Built with", value: "Next.js, React, Redis" },
+        {
+          label: "Features",
+          value: "Instant messaging, typing indicators, read receipts",
+        },
+        {
+          label: "Designed for",
+          value: "Low latency and high concurrency across many active users",
+        },
+      ],
+    },
     accent: "255, 176, 118",
     media: null,
     poster: null,
+    image: {
+      src: "/images/projects/guff-chat.png",
+      alt: "Illustration of a person and a robot facing each other across a conversation of chat bubbles",
+      // Taller than the screen: cropped so the whole conversation shows.
+      position: "50% 34%",
+    },
     z: WORLD_02_Z,
     offX: -1,
     offY: -1,
@@ -224,9 +306,9 @@ export const PROJECTS: readonly ProjectStationDef[] = [
     ),
     fadeOut: null,
     distant: {
-      frame: [0.31, 0.28],
-      scale: 0.46,
-      clarity: 0.62,
+      frame: [0.31, 0.3],
+      scale: WORLD_SCALE,
+      clarity: 0.94,
       lost: seen(WORLD_02_Z, HORIZON_Z + HOLD_02 + 1.2, HORIZON_Z + HOLD_03),
     },
     world: { spread: 3.6, ahead: 8, behind: 9, density: 1.1 },
@@ -234,10 +316,27 @@ export const PROJECTS: readonly ProjectStationDef[] = [
   {
     // Lower right.
     id: "project-03",
-    title: "Project 03",
+    title: "NFT Marketplace",
+    about: {
+      kind: "Digital artwork gallery",
+      tagline: "A gallery where the art is owned on-chain.",
+      summary:
+        "Art lovers mint, buy and sell NFTs in a decentralized marketplace. Solidity smart contracts settle every sale securely on the blockchain, MetaMask sign-in proves who owns what and handles payment, and a gallery-style interface keeps the artwork at the centre.",
+      facts: [
+        { label: "Built with", value: "Next.js, React, Solidity, MetaMask" },
+        {
+          label: "Features",
+          value: "Minting, buying and selling; wallet sign-in; ownership verification",
+        },
+      ],
+    },
     accent: "244, 148, 126",
     media: null,
     poster: null,
+    image: {
+      src: "/images/projects/nft-marketplace.png",
+      alt: "Illustration of an NFT marketplace on a computer screen, linked to artworks and Ethereum coins",
+    },
     z: WORLD_03_Z,
     offX: 1,
     offY: 1,
@@ -251,9 +350,9 @@ export const PROJECTS: readonly ProjectStationDef[] = [
     ),
     fadeOut: null,
     distant: {
-      frame: [0.69, 0.7],
-      scale: 0.46,
-      clarity: 0.62,
+      frame: [0.69, 0.6],
+      scale: WORLD_SCALE,
+      clarity: 0.94,
       lost: seen(WORLD_03_Z, HORIZON_Z + HOLD_03 + 1.2, HORIZON_Z + HOLD_04),
     },
     world: { spread: 2.8, ahead: 6.5, behind: 8, density: 0.9 },
@@ -261,10 +360,31 @@ export const PROJECTS: readonly ProjectStationDef[] = [
   {
     // Lower left.
     id: "project-04",
-    title: "Project 04",
+    title: "Virtual Voice Assistant",
+    about: {
+      kind: "Desktop voice assistant",
+      tagline: "A desktop you can talk to.",
+      summary:
+        "A Python desktop app that runs on voice commands: open applications, search the web or check system information without touching the keyboard. Each user signs in to their own assistant, and their data is kept encrypted.",
+      facts: [
+        {
+          label: "Built with",
+          value: "Python, speech recognition, task automation",
+        },
+        { label: "Results", value: "92% speech recognition accuracy" },
+        {
+          label: "Security",
+          value: "User authentication and data encryption",
+        },
+      ],
+    },
     accent: "212, 134, 168",
     media: null,
     poster: null,
+    image: {
+      src: "/images/projects/voice-assistant.png",
+      alt: "A person speaking to a voice assistant on a phone showing a microphone and a glowing sound wave",
+    },
     z: WORLD_04_Z,
     offX: -1,
     offY: 1,
@@ -278,10 +398,11 @@ export const PROJECTS: readonly ProjectStationDef[] = [
     ),
     fadeOut: null,
     distant: {
-      frame: [0.31, 0.7],
-      scale: 0.46,
-      clarity: 0.62,
+      frame: [0.31, 0.6],
+      scale: WORLD_SCALE,
+      clarity: 0.94,
       lost: seen(WORLD_04_Z, HORIZON_Z + HOLD_04 + 1.2, HORIZON_Z + HOLD_05),
+      panel: "centred",
     },
     world: { spread: 3.4, ahead: 7.5, behind: 9, density: 1.05 },
   },
@@ -289,10 +410,27 @@ export const PROJECTS: readonly ProjectStationDef[] = [
     // Upper right, and gone just before the camera comes to rest at the
     // bottom of the fall, where the Education book is made.
     id: "project-05",
-    title: "Project 05",
+    title: "Online Fashion Jewelry Store",
+    about: {
+      kind: "E-commerce website",
+      tagline: "A jewelry store built for browsing.",
+      summary:
+        "An optimized online store with more than 100 products. React keeps browsing quick and responsive, MongoDB manages products and orders, and search, filters and a cart lead to a secure checkout.",
+      facts: [
+        { label: "Built with", value: "React, MongoDB" },
+        {
+          label: "Features",
+          value: "Product search and filtering, cart management, secure checkout",
+        },
+      ],
+    },
     accent: "176, 148, 228",
     media: null,
     poster: null,
+    image: {
+      src: "/images/projects/jewelry-store.png",
+      alt: "Two people browsing an online jewelry shop on a laptop",
+    },
     z: WORLD_05_Z,
     offX: 1,
     offY: -1,
@@ -306,9 +444,9 @@ export const PROJECTS: readonly ProjectStationDef[] = [
     ),
     fadeOut: null,
     distant: {
-      frame: [0.69, 0.28],
-      scale: 0.46,
-      clarity: 0.62,
+      frame: [0.69, 0.3],
+      scale: WORLD_SCALE,
+      clarity: 0.94,
       lost: seen(WORLD_05_Z, HORIZON_Z + 28.9, HORIZON_Z + 31.4),
     },
     world: { spread: 3, ahead: 7, behind: 10, density: 1.2 },

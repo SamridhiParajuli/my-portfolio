@@ -63,6 +63,7 @@ import {
   PROJECTS,
   type ProjectStationDef,
 } from "@/components/ProjectStations/projects";
+import { HOVER_GAP, TITLE_CLEAR } from "./guideParticle";
 
 /** Camera distance (UNIT) at which a screen renders at its layout size --
  *  i.e. where the DOM node's scale is exactly 1. Sits inside the window
@@ -200,6 +201,36 @@ const CARD_RISE = 0.35;
 const CARD_K = 0.052;
 const CARD_MIN = 12;
 const CARD_MAX = 24;
+/** How much wider than its screen a title may be; a longer name is set
+ *  smaller to fit. */
+const CARD_ROOM = 1.3;
+
+/* --- a distant world's panel: what it is (see InfoPanels) --- */
+/** Where on the entrance's clock its lines come in, one after another --
+ *  after its title, so the name is read first. */
+const INFO_BEAT: readonly [number, number] = [1, BEAT_END];
+/** Camera distances (UNIT) from its stop over which the panel comes up as
+ *  the camera settles there, and goes again once it leaves -- gone before
+ *  the next world's entrance, which may well stand where this panel is. */
+const INFO_ARRIVE = [1.8, 0.4] as const;
+const INFO_LEAVE = [1.2, 0.3] as const;
+/** Its width (px): a share of the frame, within bounds that keep its lines
+ *  a comfortable length. */
+const INFO_W_K = 0.3;
+const INFO_W_MIN = 300;
+const INFO_W_MAX = 420;
+/** Room (px) kept between it and its screen, and from the frame's edges --
+ *  more at the top, where the name and the links across it are. */
+const INFO_GAP = 56;
+const INFO_EDGE = 28;
+const INFO_TOP = 84;
+/** Narrower than this, or taller than wide, there is no side of the sky to
+ *  spare: it goes above or below its screen, across the frame. */
+const INFO_NARROW_W = 820;
+const INFO_SIDE_NARROW = 16;
+/** ...where it also keeps this far (px) past the guide, which rests just
+ *  beyond the title, toward the middle of frame (see layoutGuide). */
+const INFO_GUIDE_CLEAR = 24;
 
 const CLOUD_N = 168;
 const CLOUD_N_SMALL = 92;
@@ -222,6 +253,17 @@ export type Station = {
   refDz: number;
   /** Font size of its title card, in CSS px at the size it rests at. */
   cardPx: number;
+  /** ...and the card's width at that size, once measured (setStationWidths)
+   *  -- so it can be kept inside the frame -- and the frame's width. */
+  cardW: number;
+  viewW: number;
+  /** Camera distance (world units) of its stop -- where the camera rests
+   *  in front of it. 0 for a place the camera flies past. */
+  holdDz: number;
+  /** Its panel's width (px), and whether it is set above or below the
+   *  screen rather than beside it. */
+  infoW: number;
+  infoNarrow: boolean;
   /** The accent, unpacked once, for the glow at this place's centre. */
   rgb: [number, number, number];
   /** The cloud, split by which side of the screen's plane it is on, because
@@ -278,6 +320,15 @@ export type StationFrame = {
   /** Its title: presence, and how far its rules have drawn out. */
   card: number;
   rule: number;
+  /** Its panel: presence, how far its lines have come in, and where it is
+   *  -- the corner it hangs from (px), and how far it is pulled back over
+   *  that point by its own height (%), so it can hang up from a bottom
+   *  edge as well as down from a top one. */
+  info: number;
+  infoBeat: number;
+  infoX: number;
+  infoY: number;
+  infoTy: number;
 };
 
 /* ------------------------------------------------------------------ */
@@ -346,6 +397,10 @@ export function buildStations(
   // subject of the shot on any aspect ratio without ever becoming a panel
   // laid over the frame.
   const refPx = Math.min(cssW * REF_W_FRAC, cssH * REF_H_FRAC);
+  const infoNarrow = cssW < INFO_NARROW_W || cssW < cssH;
+  const infoW = infoNarrow
+    ? cssW - 2 * INFO_SIDE_NARROW
+    : clamp(cssW * INFO_W_K, INFO_W_MIN, INFO_W_MAX);
 
   return PROJECTS.map((def, i) => {
     const basePx = refPx * def.width;
@@ -464,6 +519,11 @@ export function buildStations(
       basePx,
       refDz,
       cardPx,
+      cardW: 0,
+      viewW: cssW,
+      holdDz,
+      infoW,
+      infoNarrow,
       rgb,
       back,
       front,
@@ -493,6 +553,11 @@ export function makeFrames(count: number): StationFrame[] {
     push: 1,
     card: 0,
     rule: 1,
+    info: 0,
+    infoBeat: 1,
+    infoX: 0,
+    infoY: 0,
+    infoTy: 0,
   }));
 }
 
@@ -517,6 +582,61 @@ function playBeat(f: StationFrame, b: number, clarity: number) {
   f.push = lerp(PUSH_FROM, 1, easeOutCubic(span(b, 0, 2.2)));
   f.card = easeInOutCubic(span(b, 0.7, 1.8));
   f.rule = easeOutCubic(span(b, 1, 2.4));
+  // Linear: each of its lines eases in on its own share of this (CSS).
+  f.infoBeat = span(b, INFO_BEAT[0], INFO_BEAT[1]);
+}
+
+/**
+ * Where a distant world's panel goes this frame: in the sky on the far side
+ * of the frame from its screen, level with it -- hanging down from its top
+ * edge if it is in the upper half, up from the foot of its title if in the
+ * lower, or centred down the frame if its def says so -- and never nearer
+ * it than INFO_GAP. With no side to spare, above or below it instead,
+ * across the frame.
+ */
+function placeInfo(s: Station, f: StationFrame, cssW: number, cssH: number) {
+  const halfW = s.basePx * 0.5 * f.scale * f.push;
+  const halfH = (halfW * 9) / 16;
+  // Kept clear of its title as well, which may be wider than it.
+  const clear = halfW * CARD_ROOM;
+  // The foot of its title, under the screen (see applyCard).
+  const titleFoot = f.y + halfH + s.cardPx * 2.2;
+  const upper = f.y < cssH / 2;
+  if (s.infoNarrow) {
+    // Past the guide resting beside it, as well as its title.
+    const guide = HOVER_GAP * cssH + INFO_GUIDE_CLEAR;
+    f.infoX = INFO_SIDE_NARROW;
+    if (upper) {
+      f.infoY = f.y + halfH + s.cardPx * TITLE_CLEAR + guide;
+      f.infoTy = 0;
+    } else {
+      f.infoY = f.y - halfH - guide;
+      f.infoTy = -100;
+    }
+    return;
+  }
+  const w = s.infoW;
+  // Mirrored across the frame from the screen, then kept clear of it.
+  const mid = cssW - f.x;
+  let left: number;
+  if (f.x > cssW / 2) {
+    const right = Math.min(mid + w / 2, f.x - clear - INFO_GAP);
+    left = Math.max(INFO_EDGE, right - w);
+  } else {
+    left = Math.max(mid - w / 2, f.x + clear + INFO_GAP);
+    left = Math.min(left, cssW - INFO_EDGE - w);
+  }
+  f.infoX = left;
+  if (s.def.distant?.panel === "centred") {
+    f.infoY = (INFO_TOP + cssH - INFO_EDGE) / 2;
+    f.infoTy = -50;
+  } else if (upper) {
+    f.infoY = Math.max(INFO_TOP, f.y - halfH);
+    f.infoTy = 0;
+  } else {
+    f.infoY = Math.min(cssH - INFO_EDGE, titleFoot);
+    f.infoTy = -100;
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -558,6 +678,7 @@ export function solveStations(
     f.visible = false;
     f.space = 0;
     f.ember = 0;
+    f.info = 0;
 
     const distant = def.distant;
     // Where it is seen from: a distant world from wherever the camera is
@@ -712,6 +833,17 @@ export function solveStations(
     if (def.fadeOut) {
       f.near *= smoothstep(NEAR_DOWN[0] * unit, NEAR_DOWN[1] * unit, dz);
     }
+
+    // Its panel: only once its entrance has been made, and only while the
+    // camera is at rest in front of it.
+    if (distant && f.cueAt >= 0) {
+      const off = dz - s.holdDz;
+      f.info =
+        alpha *
+        smoothstep(INFO_ARRIVE[0] * unit, INFO_ARRIVE[1] * unit, off) *
+        smoothstep(-INFO_LEAVE[0] * unit, -INFO_LEAVE[1] * unit, off);
+      if (f.info > 0.002) placeInfo(s, f, cssW, cssH);
+    }
   }
 }
 
@@ -855,22 +987,42 @@ function drawEmber(
  * ------------------------------------------------------------------ */
 
 /** Layout width for each node -- scale 1 then means "at reference
- *  distance", which is the whole contract between this and the CSS -- and
- *  the size each title card is set in. */
+ *  distance", which is the whole contract between this and the CSS -- the
+ *  size each title card is set in, and each panel's width and setting. */
 export function setStationWidths(
   nodes: (HTMLElement | null)[],
   cards: (HTMLElement | null)[],
+  infos: (HTMLElement | null)[],
   stations: Station[]
 ) {
   for (let i = 0; i < stations.length; i++) {
-    nodes[i]?.style.setProperty(
-      "--ps-w",
-      `${Math.round(stations[i].basePx)}px`
-    );
-    cards[i]?.style.setProperty(
-      "--ps-card-size",
-      `${stations[i].cardPx.toFixed(1)}px`
-    );
+    const s = stations[i];
+    nodes[i]?.style.setProperty("--ps-w", `${Math.round(s.basePx)}px`);
+    const card = cards[i];
+    if (card) {
+      card.style.setProperty("--ps-card-size", `${s.cardPx.toFixed(1)}px`);
+      // Everything in a title is in its em, so one measure of it at that
+      // size says how much smaller a long name has to be to fit its room:
+      // a little wider than its screen -- or, where screens are small and
+      // panels go across the frame, the frame's width.
+      const room = s.infoNarrow
+        ? s.infoW
+        : s.basePx * (s.def.distant?.scale ?? 1) * CARD_ROOM;
+      const natural = card.offsetWidth;
+      s.cardW = Math.min(natural, room);
+      if (natural > room) {
+        card.style.setProperty(
+          "--ps-card-size",
+          `${((s.cardPx * room) / natural).toFixed(1)}px`
+        );
+      }
+    }
+    const info = infos[i];
+    if (info) {
+      info.style.setProperty("--ps-info-w", `${Math.round(s.infoW)}px`);
+      if (s.infoNarrow) info.dataset.narrow = "";
+      else delete info.dataset.narrow;
+    }
   }
 }
 
@@ -934,7 +1086,13 @@ function applyCard(
     s.basePx * (9 / 32) * f.scale * f.push +
     s.cardPx * (0.9 + (1 - f.card) * CARD_RISE);
   const k = f.scale / (s.def.distant?.scale ?? 1);
-  style.transform = `translate(${f.x.toFixed(1)}px, ${y.toFixed(
+  // Centred under it, unless that would run it off the side of the frame.
+  const half = (s.cardW * k) / 2;
+  const x =
+    2 * half > s.viewW - 2 * INFO_SIDE_NARROW
+      ? s.viewW / 2
+      : clamp(f.x, INFO_SIDE_NARROW + half, s.viewW - INFO_SIDE_NARROW - half);
+  style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(
     1
   )}px) translate(-50%, 0) scale(${k.toFixed(4)})`;
   if (markIntro(card, f.intro, CARD_BEAT)) {
@@ -942,15 +1100,39 @@ function applyCard(
   }
 }
 
+/** What an entrance writes on a panel, while it plays (see CARD_BEAT). */
+const INFO_BEAT_PROPS = ["--ps-info"] as const;
+
+/** A distant world's panel, in the sky opposite its screen (placeInfo). */
+function applyInfo(node: HTMLElement | null | undefined, f: StationFrame) {
+  if (!node) return;
+  const style = node.style;
+  const o = f.visible ? f.info : 0;
+  if (o <= 0.002) {
+    if (style.visibility !== "hidden") style.visibility = "hidden";
+    return;
+  }
+  if (style.visibility !== "visible") style.visibility = "visible";
+  style.opacity = o.toFixed(3);
+  style.transform = `translate(${f.infoX.toFixed(1)}px, ${f.infoY.toFixed(
+    1
+  )}px) translate(0, ${f.infoTy}%)`;
+  if (markIntro(node, f.intro, INFO_BEAT_PROPS)) {
+    style.setProperty("--ps-info", f.infoBeat.toFixed(3));
+  }
+}
+
 export function applyStationFrames(
   nodes: (HTMLElement | null)[],
   cards: (HTMLElement | null)[],
+  infos: (HTMLElement | null)[],
   stations: Station[],
   frames: StationFrame[]
 ) {
   for (let i = 0; i < frames.length; i++) {
     const f = frames[i];
     applyCard(cards[i], stations[i], f);
+    applyInfo(infos[i], f);
     const node = nodes[i];
     if (!node) continue;
     if (!f.visible) {
@@ -982,7 +1164,8 @@ export function applyStationFrames(
 
 export function hideStations(
   nodes: (HTMLElement | null)[],
-  cards: (HTMLElement | null)[]
+  cards: (HTMLElement | null)[],
+  infos: (HTMLElement | null)[]
 ) {
   for (const node of nodes) {
     if (node && node.style.visibility !== "hidden") {
@@ -990,9 +1173,11 @@ export function hideStations(
       setMediaPlaying(node, false);
     }
   }
-  for (const card of cards) {
-    if (card && card.style.visibility !== "hidden") {
-      card.style.visibility = "hidden";
+  for (const list of [cards, infos]) {
+    for (const flat of list) {
+      if (flat && flat.style.visibility !== "hidden") {
+        flat.style.visibility = "hidden";
+      }
     }
   }
 }

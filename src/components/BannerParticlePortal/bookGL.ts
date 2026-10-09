@@ -463,7 +463,7 @@ void main() {
     vec2 cp = vSc.xy * vec2(uInkCAsp, 1.0);
     float ragC = vnoise(cp * vec2(64.0, 88.0)) - 0.5;
     float ageC = (uInkCT.x - J.g) * uInkCT.y + ragC * 0.4;
-    float shownC = smoothstep(0.0, 0.6, ageC);
+    float shownC = smoothstep(0.0, 0.35, ageC);
     float wetC = 1.0 - smoothstep(0.1, 1.6, ageC);
     vec2 rc = uInkCPx * (1.0 + 2.2 * wetC);
     float spreadC = 0.25 * (texture2D(uInkC, vSc.xy + rc).r + texture2D(uInkC, vSc.xy - rc).r +
