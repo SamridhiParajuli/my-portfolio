@@ -28,6 +28,25 @@
   will-change: transform, opacity;
 }
 
+/* A phone held upright (PHONE_QUERY in laptopLayout.ts): twenty photos in
+   one row across it are a few px each, so there they settle into a block
+   of three rows instead. The wrapper is exactly that block's box, in tile
+   widths -- 7 columns and 3 rows of 1 x 1.4 tiles with a 0.2 gap, matching
+   GRID_* there. The vh term keeps the block clear of the name and the
+   caption on a short phone. */
+@media (max-width: 767px) and (orientation: portrait) {
+  .wrapper {
+    --tile-w: min(11vw, 6.6dvh, 48px);
+    width: calc(var(--tile-w) * 8.2);
+    height: calc(var(--tile-w) * 4.6);
+  }
+
+  .tile {
+    width: var(--tile-w);
+    height: calc(var(--tile-w) * 1.4);
+  }
+}
+
 .srOnly {
   position: absolute;
   width: 1px;

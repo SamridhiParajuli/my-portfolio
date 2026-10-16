@@ -262,8 +262,8 @@ export function layoutGuide(
   for (const s of stations) {
     const dist = s.def.distant;
     if (!dist) continue;
-    const fx = dist.frame[0] * cssW;
-    const fy = dist.frame[1] * cssH;
+    const fx = s.frameX;
+    const fy = s.frameY;
     const halfH = ((s.basePx * dist.scale) / 2) * (9 / 16);
     g.hoverX.push(fx);
     g.hoverY.push(

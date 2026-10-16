@@ -81,7 +81,7 @@ export default function ProjectStations({ nodesRef, depth }: Props) {
                       src={project.image.src}
                       alt={project.image.alt}
                       fill
-                      sizes="(max-width: 768px) 60vw, 44vw"
+                      sizes="(max-width: 768px) 90vw, 44vw"
                       loading="eager"
                       style={{ objectPosition: project.image.position }}
                     />

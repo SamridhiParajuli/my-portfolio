@@ -232,6 +232,26 @@ const INFO_SIDE_NARROW = 16;
  *  beyond the title, toward the middle of frame (see layoutGuide). */
 const INFO_GUIDE_CLEAR = 24;
 
+/* --- a distant world, on a phone held upright --- */
+/** Narrower than this (CSS px), and taller than wide -- the same phone the
+ *  intro's photo grid is for (PHONE_QUERY in laptopLayout). There is no
+ *  side of the sky to hang a world in off to one side, so instead it is set
+ *  across the middle, as large as the frame allows. */
+const PHONE_MAX_W = 767;
+/** How wide it reads once surfaced there, as a share of the frame's width
+ *  -- less on a short phone, where its panel's room comes first. */
+const PHONE_W_K = 0.88;
+/** Room (px) kept over a world high in the frame, where the name and the
+ *  menu run across the top, and under the title of one low in it. */
+const PHONE_TOP = 64;
+const PHONE_FOOT = 24;
+/** Room (px) kept for its panel, past the guide: the tallest of them at a
+ *  phone's width, with a little to spare. */
+const PHONE_PANEL_ROOM = 360;
+/** The foot of a world's title, under its screen, in the title's own size
+ *  (see applyCard). */
+const TITLE_FOOT = 2.2;
+
 const CLOUD_N = 168;
 const CLOUD_N_SMALL = 92;
 /** Below this a mote is not worth projecting. */
@@ -246,6 +266,11 @@ export type Station = {
   /** Half-extents of the screen in world units. */
   halfW: number;
   halfH: number;
+  /** Where in frame (CSS px) a distant world hangs once it has surfaced --
+   *  its def's `frame`, or across the middle on a phone. 0 for a place the
+   *  camera flies past. */
+  frameX: number;
+  frameY: number;
   /** Width the DOM node is laid out at, in CSS px. */
   basePx: number;
   /** Camera distance, in world units, at which the node renders at exactly
@@ -397,15 +422,52 @@ export function buildStations(
   // subject of the shot on any aspect ratio without ever becoming a panel
   // laid over the frame.
   const refPx = Math.min(cssW * REF_W_FRAC, cssH * REF_H_FRAC);
+  // On a phone a distant world is sized by how large it reads once it has
+  // surfaced: what is left of the frame's height once its panel has room,
+  // per px of its width that its screen, title and the gap under it take
+  // (see placeInfo) -- never smaller than its def would make it.
+  const phone = cssW <= PHONE_MAX_W && cssW <= cssH;
+  const phoneRoomH =
+    cssH - PHONE_TOP - HOVER_GAP * cssH - INFO_GUIDE_CLEAR - PHONE_PANEL_ROOM;
+  const phoneSeenPx = Math.min(
+    cssW * PHONE_W_K,
+    phoneRoomH / (9 / 16 + CARD_K * TITLE_CLEAR)
+  );
   const infoNarrow = cssW < INFO_NARROW_W || cssW < cssH;
   const infoW = infoNarrow
     ? cssW - 2 * INFO_SIDE_NARROW
     : clamp(cssW * INFO_W_K, INFO_W_MIN, INFO_W_MAX);
 
   return PROJECTS.map((def, i) => {
-    const basePx = refPx * def.width;
-    const wz = def.z * unit;
     const distant = def.distant;
+    const basePx =
+      phone && distant
+        ? Math.max(refPx * def.width, phoneSeenPx / distant.scale)
+        : refPx * def.width;
+    const wz = def.z * unit;
+    const cardPx = clamp(
+      basePx * (distant ? distant.scale : 1) * CARD_K,
+      CARD_MIN,
+      CARD_MAX
+    );
+    // Where in frame a distant world hangs once it has surfaced. On a phone,
+    // across the middle and alternately high and low, so each one makes its
+    // entrance clear of the one before it, which is still thinning away --
+    // high clear of the name and menu, low with its title kept off the foot
+    // of the frame.
+    let frameX = 0;
+    let frameY = 0;
+    if (distant && phone) {
+      const seenHalfH = (basePx * distant.scale * 9) / 32;
+      frameX = cssW / 2;
+      frameY =
+        i % 2 === 0
+          ? PHONE_TOP + seenHalfH
+          : cssH - PHONE_FOOT - cardPx * TITLE_FOOT - seenHalfH;
+    } else if (distant) {
+      frameX = distant.frame[0] * cssW;
+      frameY = distant.frame[1] * cssH;
+    }
     // The camera distance this screen's detail is drawn to be read from. A
     // distant world is read from where the camera is once it has surfaced,
     // at the scale it hangs in frame there -- so it is vast, which is what
@@ -425,12 +487,13 @@ export function buildStations(
       // Placed by where in frame it hangs, seen from the camera at that
       // moment. It is so far beyond everything else that the rest of the
       // flight moves it only by a little parallax: this is where it *is*,
-      // not one moment of a pass. As fractions of the viewport rather than
-      // of its own size, so it keeps its corner of the sky -- well clear of
-      // the hole -- on a phone as much as on a monitor.
+      // not one moment of a pass. As a place in the viewport rather than a
+      // multiple of its own size, so it keeps its corner of the sky -- well
+      // clear of the hole -- whatever the frame (or, on a phone, its band
+      // across the middle).
       sampleCamera(probe, w, focal, tAtDepth(wz - holdDz, w.bhZ, unit));
-      wx = probe.x + (distant.frame[0] * cssW - w.cx) * (holdDz / focal);
-      wy = probe.y + (distant.frame[1] * cssH - w.cy) * (holdDz / focal);
+      wx = probe.x + (frameX - w.cx) * (holdDz / focal);
+      wy = probe.y + (frameY - w.cy) * (holdDz / focal);
     } else {
       // Anchored to where the camera is at the distance this screen is
       // meant to be read from, so the offsets below frame it identically on
@@ -503,12 +566,6 @@ export function buildStations(
       (ahead ? front : back).push(mote);
     }
 
-    const cardPx = clamp(
-      basePx * (distant ? distant.scale : 1) * CARD_K,
-      CARD_MIN,
-      CARD_MAX
-    );
-
     return {
       def,
       wx,
@@ -516,6 +573,8 @@ export function buildStations(
       wz,
       halfW,
       halfH,
+      frameX,
+      frameY,
       basePx,
       refDz,
       cardPx,
@@ -600,7 +659,7 @@ function placeInfo(s: Station, f: StationFrame, cssW: number, cssH: number) {
   // Kept clear of its title as well, which may be wider than it.
   const clear = halfW * CARD_ROOM;
   // The foot of its title, under the screen (see applyCard).
-  const titleFoot = f.y + halfH + s.cardPx * 2.2;
+  const titleFoot = f.y + halfH + s.cardPx * TITLE_FOOT;
   const upper = f.y < cssH / 2;
   if (s.infoNarrow) {
     // Past the guide resting beside it, as well as its title.

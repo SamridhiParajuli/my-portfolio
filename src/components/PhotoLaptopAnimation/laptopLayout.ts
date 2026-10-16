@@ -9,7 +9,8 @@
 // of two loose rows, then all 20 converge into a single precise row. Every
 // tile keeps roughly the same column throughout — only the row it sits in
 // changes — so the motion reads as "two rows merging into one" rather than
-// particles flying in from scattered, unrelated positions.
+// particles flying in from scattered, unrelated positions. A phone held
+// upright gets a three-row block instead (GRID_* below).
 
 export type RowPoint = {
   x: number;
@@ -69,6 +70,51 @@ export const SCATTER_POINTS: ScatterPoint[] = ROW_TARGETS.map((target, i) => {
   return {
     x: target.x + range(-0.008, 0.008),
     y: ROW_Y + band * BAND_OFFSET + range(-0.015, 0.015),
+    rotation: range(-3, 3),
+    scale: range(0.94, 1.06),
+    opacity: range(0.88, 1),
+  };
+});
+
+// --- On a phone held upright: three rows instead of one ---
+// Twenty photos in one row across a phone leaves each a few px wide, so
+// there they settle into a block of three rows (7, 6, 7), the middle one set
+// half a column in like courses of brick. Generated after everything above
+// so the shared PRNG gives the desktop row exactly the values it always had.
+
+/** Kept in step with the media query in PhotoLaptopAnimation.module.css. */
+export const PHONE_QUERY = "(max-width: 767px) and (orientation: portrait)";
+
+const GRID_ROWS = [7, 6, 7];
+// In tile widths, matching the CSS: a tile's height, and the gap between
+// neighbors. On a phone the wrapper is exactly the block's own box.
+const GRID_TILE_H = 1.4;
+const GRID_GAP = 0.2;
+const GRID_COLS = Math.max(...GRID_ROWS);
+const GRID_W = GRID_COLS * (1 + GRID_GAP) - GRID_GAP;
+const GRID_H = GRID_ROWS.length * (GRID_TILE_H + GRID_GAP) - GRID_GAP;
+
+export const GRID_TARGETS: RowPoint[] = GRID_ROWS.flatMap((count, row) => {
+  const inset = ((GRID_COLS - count) / 2) * (1 + GRID_GAP);
+  const y = (row * (GRID_TILE_H + GRID_GAP) + GRID_TILE_H / 2) / GRID_H;
+  return Array.from({ length: count }, (_, col) => ({
+    x: (2 * (inset + col * (1 + GRID_GAP) + 0.5)) / GRID_W - 1,
+    y,
+    rotation: range(-1.5, 1.5),
+    scale: range(0.97, 1.03),
+  }));
+});
+
+// Same idea as the desktop start: each row begins as two loose half-rows
+// (alternate photos lifted and dropped) that merge into one.
+const GRID_BAND_OFFSET = (0.2 * GRID_TILE_H) / GRID_H;
+
+export const GRID_SCATTER: ScatterPoint[] = GRID_TARGETS.map((target, i) => {
+  const band = i % 2 === 0 ? -1 : 1;
+
+  return {
+    x: target.x + range(-0.008, 0.008),
+    y: target.y + band * GRID_BAND_OFFSET + range(-0.01, 0.01),
     rotation: range(-3, 3),
     scale: range(0.94, 1.06),
     opacity: range(0.88, 1),

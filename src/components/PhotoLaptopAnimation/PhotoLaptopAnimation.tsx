@@ -3,7 +3,14 @@
 import { useEffect, useRef } from "react";
 import Image from "next/image";
 import gsap from "gsap";
-import { ROW_TARGETS, SCATTER_POINTS, PHOTOS } from "./laptopLayout";
+import {
+  ROW_TARGETS,
+  SCATTER_POINTS,
+  GRID_TARGETS,
+  GRID_SCATTER,
+  PHONE_QUERY,
+  PHOTOS,
+} from "./laptopLayout";
 import styles from "./PhotoLaptopAnimation.module.css";
 
 // Name.tsx starts its reveal at delay 1s with a 1.8s power3.out tween — the
@@ -18,6 +25,13 @@ const toPx = (
   x: ((point.x + 1) / 2) * width,
   y: point.y * height,
 });
+
+// One row on anything wide enough for it; a three-row block on a phone held
+// upright. Read fresh each time, so a rotation settles into the right one.
+const currentLayout = () =>
+  window.matchMedia(PHONE_QUERY).matches
+    ? { targets: GRID_TARGETS, scatter: GRID_SCATTER }
+    : { targets: ROW_TARGETS, scatter: SCATTER_POINTS };
 
 type PhotoLaptopAnimationProps = {
   // Fired once the existing line animation has fully settled, handing the
@@ -57,8 +71,9 @@ export default function PhotoLaptopAnimation({
       const height = container.clientHeight;
       if (!width || !height) return;
 
+      const { targets } = currentLayout();
       tiles.forEach((tile, i) => {
-        const target = ROW_TARGETS[i];
+        const target = targets[i];
         const { x, y } = toPx(target, width, height);
         const vars = {
           x,
@@ -89,9 +104,10 @@ export default function PhotoLaptopAnimation({
 
     const width = container.clientWidth;
     const height = container.clientHeight;
+    const { targets, scatter: scatterPoints } = currentLayout();
 
     tiles.forEach((tile, i) => {
-      const scatter = SCATTER_POINTS[i];
+      const scatter = scatterPoints[i];
       const { x, y } = toPx(scatter, width, height);
       gsap.set(tile, {
         xPercent: -50,
@@ -107,7 +123,7 @@ export default function PhotoLaptopAnimation({
     const tl = gsap.timeline({ delay: NAME_SETTLE_DELAY });
 
     tl.to(tiles, {
-      opacity: (i: number) => SCATTER_POINTS[i].opacity,
+      opacity: (i: number) => scatterPoints[i].opacity,
       duration: 0.8,
       stagger: { each: 0.03, from: "random" },
       ease: "power1.out",
@@ -115,11 +131,11 @@ export default function PhotoLaptopAnimation({
       tiles,
       {
         x: (i: number) =>
-          toPx(ROW_TARGETS[i], container.clientWidth, container.clientHeight).x,
+          toPx(targets[i], container.clientWidth, container.clientHeight).x,
         y: (i: number) =>
-          toPx(ROW_TARGETS[i], container.clientWidth, container.clientHeight).y,
-        rotation: (i: number) => ROW_TARGETS[i].rotation,
-        scale: (i: number) => ROW_TARGETS[i].scale,
+          toPx(targets[i], container.clientWidth, container.clientHeight).y,
+        rotation: (i: number) => targets[i].rotation,
+        scale: (i: number) => targets[i].scale,
         opacity: 1,
         duration: 1.6,
         stagger: { each: 0.045, from: "random" },
